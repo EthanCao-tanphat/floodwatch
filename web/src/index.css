@@ -1,0 +1,57 @@
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900;
+  }
+}
+
+@layer components {
+  .risk-pill {
+    @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold;
+  }
+  .risk-low { @apply bg-risk-low/15 text-risk-low; }
+  .risk-moderate { @apply bg-risk-moderate/15 text-risk-moderate; }
+  .risk-high { @apply bg-risk-high/15 text-risk-high; }
+  .risk-severe { @apply bg-risk-severe/15 text-risk-severe; }
+}
+
+/* Hide MapLibre attribution on mobile to keep clean rider UI */
+@media (max-width: 640px) {
+  .maplibregl-ctrl-attrib {
+    display: none !important;
+  }
+}
+.maplibregl-ctrl-attrib {
+  font-size: 10px !important;
+}
+
+/* Pin pulse animation for the active country on the globe */
+@keyframes pin-pulse {
+  0%   { transform: scale(1);   opacity: 1; }
+  70%  { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.pin-pulse {
+  animation: pin-pulse 1.6s infinite;
+}
+
+/* City marker ring pulse on the Vietnam map */
+@keyframes city-pulse {
+  0%   { transform: scale(1);   opacity: 0.4; }
+  70%  { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}

@@ -1,0 +1,60 @@
+{
+  "_schema_version": 2,
+  "_notes": "Per-city structure. Muthuraman expands hotspots[] for each city. drainage_score: 0=worst, 1=best.",
+  "cities": {
+    "hcmc": {
+      "drainage_score": 0.35,
+      "_drainage_note": "HCMC drainage chronically below capacity; Thu Duc and District 7 worst",
+      "hotspots": [
+        { "name": "Vo Van Ngan, Thu Duc", "lat": 10.8506, "lng": 106.7714, "historical_freq": 0.85 },
+        { "name": "Kha Van Can, Thu Duc", "lat": 10.8483, "lng": 106.7531, "historical_freq": 0.78 },
+        { "name": "Pham Van Dong (Binh Trieu)", "lat": 10.8235, "lng": 106.7235, "historical_freq": 0.72 },
+        { "name": "Quoc Lo 13 (Hiep Binh Phuoc)", "lat": 10.8298, "lng": 106.7159, "historical_freq": 0.68 },
+        { "name": "Le Van Viet, District 9", "lat": 10.8456, "lng": 106.7847, "historical_freq": 0.62 },
+        { "name": "Linh Dong (To Ngoc Van)", "lat": 10.8453, "lng": 106.7421, "historical_freq": 0.71 },
+        { "name": "Nguyen Duy Trinh, D2", "lat": 10.7891, "lng": 106.8054, "historical_freq": 0.58 },
+        { "name": "Xa Lo Ha Noi (Suoi Tien)", "lat": 10.8678, "lng": 106.8013, "historical_freq": 0.45 },
+        { "name": "Duong So 8 (Linh Xuan)", "lat": 10.8754, "lng": 106.7385, "historical_freq": 0.66 },
+        { "name": "Pham Van Dong D5/D9 stretch", "lat": 10.8123, "lng": 106.7589, "historical_freq": 0.69 },
+        { "name": "Nguyen Huu Canh, Binh Thanh", "lat": 10.7905, "lng": 106.7178, "historical_freq": 0.82 },
+        { "name": "Bach Dang, Binh Thanh", "lat": 10.8089, "lng": 106.7095, "historical_freq": 0.61 },
+        { "name": "Huynh Tan Phat, D7", "lat": 10.7376, "lng": 106.7245, "historical_freq": 0.74 },
+        { "name": "Tran Xuan Soan, D7", "lat": 10.7398, "lng": 106.7172, "historical_freq": 0.67 },
+        { "name": "Le Duc Tho, Go Vap", "lat": 10.8454, "lng": 106.6657, "historical_freq": 0.65 }
+      ]
+    },
+    "hanoi": {
+      "drainage_score": 0.45,
+      "_drainage_note": "TODO: Muthuraman — calibrate against Hanoi flood reports",
+      "hotspots": [
+        { "name": "Pho Hue", "lat": 21.018, "lng": 105.852, "historical_freq": 0.55 },
+        { "name": "Nguyen Trai (Thanh Xuan)", "lat": 21.001, "lng": 105.812, "historical_freq": 0.58 },
+        { "name": "Thai Ha", "lat": 21.013, "lng": 105.822, "historical_freq": 0.51 }
+      ]
+    },
+    "danang": {
+      "drainage_score": 0.55,
+      "_drainage_note": "TODO: Muthuraman — Da Nang typhoon season flood points",
+      "hotspots": [
+        { "name": "Nui Thanh", "lat": 16.061, "lng": 108.219, "historical_freq": 0.48 },
+        { "name": "Cau Rong area", "lat": 16.062, "lng": 108.227, "historical_freq": 0.42 }
+      ]
+    },
+    "cantho": {
+      "drainage_score": 0.40,
+      "_drainage_note": "TODO: Muthuraman — Mekong Delta tidal flooding pattern",
+      "hotspots": [
+        { "name": "Mau Than", "lat": 10.034, "lng": 105.779, "historical_freq": 0.62 },
+        { "name": "Ninh Kieu wharf area", "lat": 10.033, "lng": 105.785, "historical_freq": 0.71 }
+      ]
+    },
+    "hue": {
+      "drainage_score": 0.50,
+      "_drainage_note": "TODO: Muthuraman — Huong River flood patterns",
+      "hotspots": [
+        { "name": "Bach Dang (Perfume River)", "lat": 16.463, "lng": 107.593, "historical_freq": 0.65 },
+        { "name": "Le Loi", "lat": 16.460, "lng": 107.591, "historical_freq": 0.52 }
+      ]
+    }
+  }
+}
