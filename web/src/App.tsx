@@ -11,7 +11,6 @@ import { api } from './api/client'
 import { useT } from './i18n/context'
 import type { Coord, RouteResponse } from './types'
 
-const LANDING_SEEN_KEY = 'floodwatch.landing.seen'
 const GlobeIntro = lazy(() =>
   import('./components/GlobeIntro').then((module) => ({ default: module.GlobeIntro }))
 )
@@ -23,9 +22,7 @@ type Panel = null | 'routes' | 'reports'
 export default function App() {
   const { t } = useT()
 
-  const [scene, setScene] = useState<Scene>(() =>
-    localStorage.getItem(LANDING_SEEN_KEY) === '1' ? 'dashboard' : 'landing'
-  )
+  const [scene, setScene] = useState<Scene>('landing')
 
   const [activeNav, setActiveNav] = useState<NavId>('map')
   const [panel, setPanel] = useState<Panel>(null)
@@ -45,7 +42,6 @@ export default function App() {
   }, [scene])
 
   function handleContinue() {
-    localStorage.setItem(LANDING_SEEN_KEY, '1')
     setScene('dashboard')
   }
 
