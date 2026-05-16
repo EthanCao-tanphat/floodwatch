@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
-import type { Coord, RouteSegment } from '../types'
+import type { Coord, RouteSegment, AlternativeRoute } from '../types'
 import { useT } from '../i18n/context'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
-// Default view = all of Vietnam
 const VIETNAM_CENTER: [number, number] = [106.5, 16.0]
 const VIETNAM_ZOOM = 4.6
 
@@ -29,13 +28,16 @@ interface Props {
   from?: Coord | null
   to?: Coord | null
   segments?: RouteSegment[]
+  /** Rejected/alternative routes — drawn dimmed UNDER the chosen route. */
+  alternatives?: AlternativeRoute[]
   onMapTap?: (coord: Coord) => void
   tapMode?: 'from' | 'to' | null
-  /** When a city marker is clicked, fly to it. */
   onCityClick?: (city: PilotCity) => void
 }
 
-export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: Props) {
+export function MapView({
+  from, to, segments, alternatives, onMapTap, tapMode, onCityClick,
+}: Props) {
   const { t, lang } = useT()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -44,7 +46,6 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
   const cityMarkersRef = useRef<maplibregl.Marker[]>([])
   const [pilotCities, setPilotCities] = useState<PilotCity[]>([])
 
-  // Fetch coverage info once
   useEffect(() => {
     fetch(`${API_BASE}/coverage`)
       .then((r) => r.json())
@@ -52,7 +53,6 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
       .catch(() => {})
   }, [])
 
-  // Init map once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
@@ -76,10 +76,24 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
     )
 
     map.on('load', () => {
+      // Alternatives source/layer — added FIRST so they render under the chosen route
+      map.addSource('route-alts', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      map.addLayer({
+        id: 'route-alts-line', type: 'line', source: 'route-alts',
+        paint: {
+          'line-color': '#9ca3af',
+          'line-width': 4,
+          'line-opacity': 0.55,
+          'line-dasharray': [2, 2],
+        },
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+      })
+
+      // Chosen route — added AFTER so it renders on top
       map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
       map.addLayer({
         id: 'route-line', type: 'line', source: 'route',
-        paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 0.85 },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 0.9 },
         layout: { 'line-cap': 'round', 'line-join': 'round' },
       })
 
@@ -96,7 +110,7 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
             'circle-stroke-opacity': 0.5,
           },
         },
-        'route-line'
+        'route-alts-line'
       )
     })
 
@@ -111,7 +125,6 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
     const map = mapRef.current
     if (!map || pilotCities.length === 0) return
 
-    // Coverage circles
     const renderCoverage = () => {
       const src = map.getSource('coverage') as maplibregl.GeoJSONSource | undefined
       if (!src) return
@@ -137,7 +150,6 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
     else map.once('load', renderCoverage)
     map.on('zoom', renderCoverage)
 
-    // Clickable HTML markers for each pilot city
     cityMarkersRef.current.forEach((m) => m.remove())
     cityMarkersRef.current = []
     for (const city of pilotCities) {
@@ -189,7 +201,7 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
     }
   }, [pilotCities, lang, onCityClick])
 
-  // Tap handler for picking from/to
+  // Tap handler
   useEffect(() => {
     const map = mapRef.current
     if (!map || !onMapTap || !tapMode) return
@@ -204,7 +216,6 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
     }
   }, [onMapTap, tapMode])
 
-  // From / To markers
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -225,7 +236,7 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
     }
   }, [to])
 
-  // Route segments — draw each segment using its full polyline points if present
+  // Chosen route segments — drawn on top
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -233,8 +244,6 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
       const src = map.getSource('route') as maplibregl.GeoJSONSource | undefined
       if (!src) return
       const features = (segments ?? []).map((s) => {
-        // Prefer full polyline points (real road geometry from GraphHopper).
-        // Fall back to a straight start→end line if no points present.
         const coords =
           s.points && s.points.length >= 2
             ? s.points.map((p) => [p.lng, p.lat])
@@ -257,7 +266,30 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
     else map.once('load', apply)
   }, [segments])
 
-  // Fit bounds for route — use full polyline if we have it, else just endpoints
+  // Alternatives — drawn UNDER, dimmed dashed
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const src = map.getSource('route-alts') as maplibregl.GeoJSONSource | undefined
+      if (!src) return
+      const features = (alternatives ?? [])
+        .filter((a) => a.points && a.points.length >= 2)
+        .map((a) => ({
+          type: 'Feature' as const,
+          properties: { is_fastest: a.is_fastest },
+          geometry: {
+            type: 'LineString' as const,
+            coordinates: a.points.map((p) => [p.lng, p.lat]),
+          },
+        }))
+      src.setData({ type: 'FeatureCollection', features })
+    }
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
+  }, [alternatives])
+
+  // Fit bounds: include chosen route AND any alternatives
   useEffect(() => {
     const map = mapRef.current
     if (!map || !from || !to) return
@@ -266,13 +298,16 @@ export function MapView({ from, to, segments, onMapTap, tapMode, onCityClick }: 
     bounds.extend([to.lng, to.lat])
     if (segments) {
       for (const s of segments) {
-        if (s.points) {
-          for (const p of s.points) bounds.extend([p.lng, p.lat])
-        }
+        if (s.points) for (const p of s.points) bounds.extend([p.lng, p.lat])
+      }
+    }
+    if (alternatives) {
+      for (const a of alternatives) {
+        for (const p of a.points) bounds.extend([p.lng, p.lat])
       }
     }
     map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 600 })
-  }, [from, to, segments])
+  }, [from, to, segments, alternatives])
 
   return (
     <div className="relative w-full h-full">

@@ -30,12 +30,23 @@ export interface RouteSegment {
   risk_level: RiskLevel
 }
 
+export interface AlternativeRoute {
+  distance_km: number
+  eta_min: number
+  overall_risk: RiskLevel
+  flood_prob_max: number
+  points: Coord[]
+  is_fastest: boolean
+}
+
 export interface RouteResponse {
   distance_km: number
   eta_min: number
   segments: RouteSegment[]
   overall_risk: RiskLevel
   recommendation: string
+  rerouted?: boolean
+  alternatives?: AlternativeRoute[]
 }
 
 export type DepthClass = 'dry' | 'ankle' | 'knee' | 'impassable'

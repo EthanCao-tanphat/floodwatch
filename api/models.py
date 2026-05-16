@@ -27,14 +27,14 @@ class ForecastResponse(BaseModel):
     lng: float
     district: str
     points: List[ForecastPoint]
-    explanation: str  # human-readable: "tide rising + 18mm rain forecast in 30min"
+    explanation: str
 
 
 # ---------- /route/safe ----------
 class RouteRequest(BaseModel):
     from_: Coord = Field(..., alias="from")
     to: Coord
-    depart_at_min: int = 0  # depart this many minutes from now
+    depart_at_min: int = 0
 
     class Config:
         populate_by_name = True
@@ -43,22 +43,34 @@ class RouteRequest(BaseModel):
 class RouteSegment(BaseModel):
     start: Coord
     end: Coord
-    points: List[Coord] = []  # full polyline points for this segment (real road geometry)
+    points: List[Coord] = []  # full polyline points for this segment
     flood_prob: float
     risk_level: str
 
 
-class RouteResponse(BaseModel):
+class AlternativeRoute(BaseModel):
+    """A rejected (or ranked-lower) alternative route, shown dimmed for context."""
     distance_km: float
     eta_min: int
-    segments: List[RouteSegment]
     overall_risk: str
-    recommendation: str  # natural language tip from the alert agent
+    flood_prob_max: float
+    points: List[Coord]      # full polyline of this alternative
+    is_fastest: bool = False  # True if this WAS the fastest path GraphHopper returned
+
+
+class RouteResponse(BaseModel):
+    distance_km: float                # of CHOSEN route
+    eta_min: int                      # of CHOSEN route
+    segments: List[RouteSegment]      # of CHOSEN route
+    overall_risk: str
+    recommendation: str
+    rerouted: bool = False            # True if we picked a non-fastest alternative for safety
+    alternatives: List[AlternativeRoute] = []  # other paths considered
 
 
 # ---------- /report/depth ----------
 class DepthReportRequest(BaseModel):
-    image_base64: str  # raw base64, no data: prefix
+    image_base64: str
     lat: float
     lng: float
 
