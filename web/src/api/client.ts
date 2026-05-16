@@ -27,7 +27,7 @@ export const api = {
     return r.json()
   },
 
-  forecast: (lat: number, lng: number, horizon_min = 90) =>
+  forecast: (lat: number, lng: number, horizon_min = 60) =>
     post<ForecastResponse>('/forecast/segment', { lat, lng, horizon_min }),
 
   route: (from: Coord, to: Coord, depart_at_min = 0) =>

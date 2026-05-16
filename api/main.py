@@ -8,9 +8,9 @@ Tiered coverage:
 Endpoints:
   GET  /                    health check
   GET  /coverage            list of pilot cities and tiers
-  POST /forecast/segment    flood probability at 30/60/90 min for a coordinate
+  POST /forecast/segment    passability risk at 30/60 min for a coordinate
   POST /route/safe          route from A to B with per-segment risk
-  POST /report/depth        Qwen-VL classifies a rider photo
+  POST /report/depth        Qwen-VL verifies passability from a rider photo
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +32,7 @@ from config import (
 
 app = FastAPI(
     title="FloodWatch API",
-    description="Predictive flooded-road intel for Vietnam. Asian Hackathon for Green Future 2026.",
+    description="30-60 minute motorbike-passability risk for HCMC pilot routes. Asian Hackathon for Green Future 2026.",
     version="0.2.0",
 )
 

@@ -71,7 +71,11 @@ async def _score_route(
                 end=Coord(lat=end[0], lng=end[1]),
                 points=[Coord(lat=p[0], lng=p[1]) for p in chunk],
                 flood_prob=round(prob, 3),
+                risk_score=round(prob, 3),
                 risk_level=risk,
+                passability=point.passability,
+                confidence=point.confidence,
+                evidence=point.evidence,
             )
         )
     return segments, max_prob

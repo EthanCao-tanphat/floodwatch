@@ -1,4 +1,4 @@
-import type { RouteResponse, RiskLevel } from '../types'
+import type { Passability, RouteResponse, RiskLevel } from '../types'
 import { RiskBadge } from './RiskBadge'
 import { useT } from '../i18n/context'
 
@@ -10,14 +10,26 @@ interface Props {
 export function RouteResults({ result, onClose }: Props) {
   const { t } = useT()
 
-  // Pick recommendation in current language based on overall risk
   const recMap: Record<RiskLevel, string> = {
     severe: t.recSevere,
     high: t.recHigh,
     moderate: t.recModerate,
     low: t.recLow,
   }
-  const localRec = recMap[result.overall_risk]
+
+  const passabilityLabel: Record<Passability, string> = {
+    safe: t.passabilitySafe,
+    slow_pass: t.passabilitySlowPass,
+    avoid_for_motorbikes: t.passabilityAvoid,
+    impassable: t.passabilityImpassable,
+    unknown: t.passabilityUnknown,
+  }
+
+  const confidenceLabel = {
+    low: t.confidenceLow,
+    medium: t.confidenceMedium,
+    high: t.confidenceHigh,
+  }[result.confidence]
 
   return (
     <div className="bg-white rounded-2xl shadow-xl p-4 space-y-3 max-h-[60vh] overflow-y-auto">
@@ -29,8 +41,11 @@ export function RouteResults({ result, onClose }: Props) {
           <div className="mt-1 flex items-center gap-2 flex-wrap">
             <RiskBadge level={result.overall_risk} />
             <span className="text-sm text-slate-600">
-              {result.distance_km} {t.routeDistance} · ~{result.eta_min} {t.routeEta}
+              {result.distance_km} {t.routeDistance} - ~{result.eta_min} {t.routeEta}
             </span>
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            {passabilityLabel[result.overall_passability]} - {t.photoConfidence}: {confidenceLabel}
           </div>
         </div>
         <button
@@ -38,12 +53,12 @@ export function RouteResults({ result, onClose }: Props) {
           className="text-slate-400 hover:text-slate-600 text-xl leading-none"
           aria-label="Close"
         >
-          ✕
+          x
         </button>
       </div>
 
       <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-700">
-        💡 {localRec}
+        {recMap[result.overall_risk]}
       </div>
 
       <div>
@@ -58,10 +73,13 @@ export function RouteResults({ result, onClose }: Props) {
             >
               <div className="text-sm font-medium text-slate-700">
                 {t.segmentLabel} {i + 1}
+                <div className="text-xs font-normal text-slate-500">
+                  {passabilityLabel[seg.passability]} - {t.rainEvidence}: {seg.evidence.rainfall_mm.toFixed(1)}mm
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500 font-mono">
-                  {(seg.flood_prob * 100).toFixed(0)}%
+                  {(seg.risk_score * 100).toFixed(0)}%
                 </span>
                 <RiskBadge level={seg.risk_level} />
               </div>

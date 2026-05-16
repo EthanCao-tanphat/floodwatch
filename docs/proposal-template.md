@@ -17,7 +17,7 @@ Hook: rider quote + Vietnam-first stats:
 - Grab driver quote: "floods are my biggest fear … fixing a waterlogged bike costs more than VND 150,000 — not worth it for a few dollars' ride."
 
 End with the wedge:
-> **Existing apps tell you the water has already arrived. FloodWatch tells you when it will arrive at YOUR route — anywhere in Vietnam.**
+> **Existing apps tell you the water has already arrived. FloodWatch tells you when flood risk may hit YOUR route and whether your motorbike can still pass.**
 
 ## 2. Competitive landscape (≈150 words)
 
@@ -28,10 +28,10 @@ End with the wedge:
 
 | Dimension | Incumbents | FloodWatch |
 |---|---|---|
-| Coverage | Single-city, reactive | **All of Vietnam, tiered** |
-| Forecast | None | 30 / 60 / 90 min |
+| Coverage | Single-city, reactive | **HCMC pilot, route-aware** |
+| Forecast | None | 30 / 60 min MVP |
 | Route-aware | No | Yes |
-| AI | None | Qwen-VL depth + multi-agent fusion |
+| AI | None | Qwen-VL passability verification + explainable risk model |
 | Data fusion | Single source | Rainfall + tide + drainage + crowdsource |
 | Audience | General public | Riders + delivery / ride-hail B2B |
 | Business model | Free government | Free B2C + paid B2B API |
@@ -48,7 +48,7 @@ FloodWatch covers all of Vietnam through three honest tiers — judges, this is 
 
 Architecture diagram from `docs/architecture.md` goes here.
 
-**Multi-agent orchestration:** four specialist agents per request — Forecast (tier-aware fusion), Route (samples 5 segments, parallel forecast calls), Depth (Qwen-VL classifies rider photos as dry/ankle/knee/impassable), Alert (plain-language recommendation). Mirrors ATM-style specialist coordination — judge-fit for Prof. Duong Nguyen Vu's aerospace/EUROCONTROL background.
+**Multi-agent orchestration:** four specialist agents per request — Forecast (explainable route-risk scoring), Route (samples 5 segments, parallel forecast calls), Photo/Passability (Qwen-VL classifies rider photos as safe / slow pass / avoid / impassable / unknown), Alert (plain-language recommendation). Mirrors ATM-style specialist coordination — judge-fit for Prof. Duong Nguyen Vu's aerospace/EUROCONTROL background.
 
 ## 4. Technical depth (≈250 words)
 

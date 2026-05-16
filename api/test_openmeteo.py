@@ -24,7 +24,7 @@ async def main():
 
     print(f"\nRainfall in next 30 min: {rainfall_in_window(data, 0):.2f}mm")
     print(f"Rainfall in 30-60 min window: {rainfall_in_window(data, 30):.2f}mm")
-    print(f"Rainfall in 60-90 min window: {rainfall_in_window(data, 60):.2f}mm")
+    print(f"Rainfall in 30-60 min window: {rainfall_in_window(data, 30):.2f}mm")
 
     print("\n✅ Data layer works. You can start the API.")
 
