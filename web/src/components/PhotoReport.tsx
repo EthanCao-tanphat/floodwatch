@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+
 import { api, fileToBase64 } from '../api/client'
 import { useT } from '../i18n/context'
 import type { Passability } from '../types'
@@ -13,6 +14,7 @@ const PASSABILITY_VISUAL: Record<Passability, { marker: string; color: string }>
 
 interface Props {
   onClose: () => void
+  onReported?: () => void
 }
 
 interface Reading {
@@ -21,9 +23,11 @@ interface Reading {
   reasoning: string
 }
 
-export function PhotoReport({ onClose }: Props) {
+export function PhotoReport({ onClose, onReported }: Props) {
   const { t } = useT()
-  const inputRef = useRef<HTMLInputElement>(null)
+
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reading, setReading] = useState<Reading | null>(null)
@@ -40,24 +44,33 @@ export function PhotoReport({ onClose }: Props) {
     setBusy(true)
     setError(null)
     setReading(null)
+
     try {
       const base64 = await fileToBase64(file)
+
       const pos = await new Promise<GeolocationPosition | null>((res) => {
         if (!navigator.geolocation) return res(null)
+
         navigator.geolocation.getCurrentPosition(
           (p) => res(p),
           () => res(null),
           { timeout: 5000 }
         )
       })
+
+      // Default to HCMC pilot area if browser geolocation is unavailable.
       const lat = pos?.coords.latitude ?? 10.8506
       const lng = pos?.coords.longitude ?? 106.7714
+
       const result = await api.reportDepth(base64, lat, lng)
+
       setReading({
         passability: result.passability,
         confidence: result.confidence,
         reasoning: result.reasoning,
       })
+
+      onReported?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : t.photoUnknownError)
     } finally {
@@ -66,17 +79,19 @@ export function PhotoReport({ onClose }: Props) {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-xl p-4 space-y-3">
-      <div className="flex items-start justify-between">
+    <div className="rounded-2xl bg-white/95 shadow-2xl border border-slate-200 p-4 text-slate-900">
+      <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <div className="text-base font-semibold text-slate-900">{t.photoTitle}</div>
-          <div className="text-xs text-slate-500 mt-0.5">{t.photoSubtitle}</div>
+          <h2 className="text-lg font-bold">{t.photoTitle}</h2>
+          <p className="text-xs text-slate-500">{t.photoSubtitle}</p>
         </div>
+
         <button
           onClick={onClose}
-          className="text-slate-400 hover:text-slate-600 text-xl leading-none"
+          className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600"
+          aria-label="Close report"
         >
-          x
+          ×
         </button>
       </div>
 
@@ -88,7 +103,7 @@ export function PhotoReport({ onClose }: Props) {
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]
-          if (f) onFile(f)
+          if (f) void onFile(f)
         }}
       />
 
@@ -102,31 +117,41 @@ export function PhotoReport({ onClose }: Props) {
       )}
 
       {busy && (
-        <div className="py-6 text-center text-sm text-slate-600">{t.photoAnalyzing}</div>
+        <div className="rounded-xl bg-cyan-50 border border-cyan-100 p-4 text-sm text-cyan-900">
+          {t.photoAnalyzing}
+        </div>
       )}
 
       {error && (
-        <div className="px-3 py-2 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>
+        <div className="rounded-xl bg-red-50 border border-red-100 p-4 text-sm text-red-700">
+          {error}
+        </div>
       )}
 
       {reading && (
-        <div className="space-y-2">
-          <div className={`text-2xl font-bold ${PASSABILITY_VISUAL[reading.passability].color}`}>
-            {PASSABILITY_VISUAL[reading.passability].marker} {passabilityLabel[reading.passability]}
+        <div className="space-y-3">
+          <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
+            <div className={`text-xl font-black ${PASSABILITY_VISUAL[reading.passability].color}`}>
+              {PASSABILITY_VISUAL[reading.passability].marker}{' '}
+              {passabilityLabel[reading.passability]}
+            </div>
+
+            <div className="mt-1 text-sm text-slate-600">
+              {t.photoConfidence}: {(reading.confidence * 100).toFixed(0)}%
+            </div>
+
+            <p className="mt-3 text-sm text-slate-700 leading-relaxed">
+              {reading.reasoning}
+            </p>
           </div>
-          <div className="text-xs text-slate-500">
-            {t.photoConfidence}: {(reading.confidence * 100).toFixed(0)}%
-          </div>
-          <div className="text-sm text-slate-700 bg-slate-50 rounded-lg p-3">
-            {reading.reasoning}
-          </div>
+
           <button
             onClick={() => {
               setReading(null)
               setError(null)
               inputRef.current?.click()
             }}
-            className="w-full py-2 border border-slate-300 rounded-lg text-sm text-slate-700"
+            className="w-full py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50"
           >
             {t.photoReportAnother}
           </button>

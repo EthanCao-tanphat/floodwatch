@@ -44,6 +44,7 @@ export function MapView({
   const fromMarkerRef = useRef<maplibregl.Marker | null>(null)
   const toMarkerRef = useRef<maplibregl.Marker | null>(null)
   const cityMarkersRef = useRef<maplibregl.Marker[]>([])
+  const segmentMarkersRef = useRef<any[]>([])
   const [pilotCities, setPilotCities] = useState<PilotCity[]>([])
 
   useEffect(() => {
@@ -266,6 +267,73 @@ export function MapView({
     else map.once('load', apply)
   }, [segments])
 
+
+  // Segment number markers — makes the 6 scored chunks visible on the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    segmentMarkersRef.current.forEach((m) => m.remove())
+    segmentMarkersRef.current = []
+
+    const list = segments ?? []
+
+    for (let i = 0; i < list.length; i += 1) {
+      const s = list[i]
+      const pts = s.points && s.points.length >= 2 ? s.points : [s.start, s.end]
+      const mid = pts[Math.floor(pts.length / 2)]
+
+      if (!mid) continue
+
+      const score =
+        typeof s.risk_score === 'number'
+          ? s.risk_score
+          : typeof s.flood_prob === 'number'
+            ? s.flood_prob
+            : 0
+
+      const color =
+        score >= 0.8
+          ? '#dc2626'
+          : score >= 0.55
+            ? '#f97316'
+            : score >= 0.25
+              ? '#f59e0b'
+              : SEGMENT_COLORS[s.risk_level] || '#10b981'
+
+      const el = document.createElement('div')
+      el.textContent = String(i + 1)
+      el.title = `Segment ${i + 1}: ${Math.round(score * 100)}% ${s.risk_level}`
+
+      el.style.cssText = `
+        width: 22px;
+        height: 22px;
+        border-radius: 9999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: ${color};
+        color: white;
+        font-size: 12px;
+        font-weight: 800;
+        border: 2px solid white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+        pointer-events: none;
+      `
+
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([mid.lng, mid.lat])
+        .addTo(map)
+
+      segmentMarkersRef.current.push(marker)
+    }
+
+    return () => {
+      segmentMarkersRef.current.forEach((m) => m.remove())
+      segmentMarkersRef.current = []
+    }
+  }, [segments])
+
   // Alternatives — drawn UNDER, dimmed dashed
   useEffect(() => {
     const map = mapRef.current
@@ -288,6 +356,31 @@ export function MapView({
     if (map.isStyleLoaded()) apply()
     else map.once('load', apply)
   }, [alternatives])
+
+
+  // Auto zoom to a single picked point.
+  // This restores the old behavior: after choosing FROM or TO, the map flies into that place.
+  // When both points or route geometry exist, the Fit Bounds effect below takes over.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const hasRouteGeometry =
+      Boolean(segments && segments.length > 0) ||
+      Boolean(alternatives && alternatives.length > 0)
+
+    if (hasRouteGeometry) return
+
+    const onlyPoint = from && !to ? from : to && !from ? to : null
+    if (!onlyPoint) return
+
+    map.flyTo({
+      center: [onlyPoint.lng, onlyPoint.lat],
+      zoom: Math.max(map.getZoom(), 14),
+      duration: 900,
+      essential: true,
+    })
+  }, [from, to, segments, alternatives])
 
   // Fit bounds: include chosen route AND any alternatives
   useEffect(() => {

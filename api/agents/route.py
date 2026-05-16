@@ -1,70 +1,154 @@
 """Route agent — real road routing + auto-rerouting around floods.
 
-Fetches up to 3 alternative routes from GraphHopper, scores each one's
-flood risk, picks the SAFEST (not necessarily fastest), and returns the
-others as `alternatives` so the frontend can dim them in red.
-
-If the chosen safe route is not the fastest one, `rerouted=true` and the
-recommendation message tells the user we rerouted them around flooding.
+Fetches up to 3 alternative routes from GraphHopper, scores each route
+segment-by-segment, picks the safest route, and returns rejected alternatives
+for dimmed/dashed display on the frontend map.
 """
+
 import asyncio
 import math
+import sys
 from typing import List, Tuple
-from models import Coord, RouteSegment, RouteResponse, AlternativeRoute
+
+from models import (
+    AlternativeRoute,
+    ConfidenceLevel,
+    Coord,
+    ForecastPoint,
+    Passability,
+    RiskEvidence,
+    RiskLevel,
+    RouteResponse,
+    RouteSegment,
+)
 from agents.forecast import forecast_segment
 from services.graphhopper import fetch_road_routes, sample_route_points
 
 
+Point = Tuple[float, float]  # (lat, lng)
+
+
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    R = 6371.0
-    rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
+    radius_km = 6371.0
+
+    rlat1 = math.radians(lat1)
+    rlat2 = math.radians(lat2)
     dlat = math.radians(lat2 - lat1)
     dlng = math.radians(lng2 - lng1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlng / 2) ** 2
-    return 2 * R * math.asin(math.sqrt(a))
+
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlng / 2) ** 2
+    )
+
+    return 2 * radius_km * math.asin(math.sqrt(a))
 
 
-def _risk_for_prob(p: float) -> str:
-    if p > 0.75:
-        return "severe"
-    if p > 0.5:
-        return "high"
-    if p > 0.25:
+def _risk_for_prob(prob: float) -> RiskLevel:
+    if prob < 0.25:
+        return "low"
+    if prob < 0.55:
         return "moderate"
-    return "low"
+    if prob < 0.80:
+        return "high"
+    return "severe"
 
 
-async def _score_segment_midpoint(start: Tuple[float, float], end: Tuple[float, float]) -> Tuple[float, str]:
-    """Score a single segment via the 60-min forecast at its midpoint."""
+def _passability_for_prob(prob: float) -> Passability:
+    if prob < 0.25:
+        return "safe"
+    if prob < 0.55:
+        return "slow_pass"
+    if prob < 0.80:
+        return "avoid_for_motorbikes"
+    return "impassable"
+
+
+def _confidence_rank(confidence: ConfidenceLevel) -> int:
+    return {"low": 0, "medium": 1, "high": 2}.get(confidence, 0)
+
+
+def _prob_from_point(point: ForecastPoint) -> float:
+    return float(point.risk_score if point.risk_score is not None else point.probability)
+
+
+def _fallback_forecast_point(reason: str) -> ForecastPoint:
+    """Low-confidence fallback so the demo does not hard-crash on API/rate-limit errors."""
+
+    print(f"[route] Forecast fallback used: {reason}", file=sys.stderr)
+
+    return ForecastPoint(
+        minutes_ahead=60,
+        probability=0.35,
+        risk_score=0.35,
+        rainfall_mm=0.0,
+        risk_level="moderate",
+        passability="slow_pass",
+        confidence="low",
+        evidence=RiskEvidence(
+            rainfall_mm=0.0,
+            tide_level_m=None,
+            hotspot_proximity=0.0,
+            drainage_score=None,
+            report_count=0,
+            photo_confirmed=False,
+        ),
+    )
+
+
+async def _score_segment_midpoint(start: Point, end: Point) -> ForecastPoint:
+    """Score one road segment using the 60-min forecast at its midpoint."""
+
     mid_lat = (start[0] + end[0]) / 2
     mid_lng = (start[1] + end[1]) / 2
-    forecast = await forecast_segment(mid_lat, mid_lng, horizon_min=90)
-    prob = next(
-        (p.probability for p in forecast.points if p.minutes_ahead == 60),
-        forecast.points[0].probability if forecast.points else 0.0,
-    )
-    risk = next(
-        (p.risk_level for p in forecast.points if p.minutes_ahead == 60),
-        "low",
-    )
-    return prob, risk
+
+    try:
+        forecast = await forecast_segment(mid_lat, mid_lng, horizon_min=90)
+    except Exception as exc:
+        return _fallback_forecast_point(str(exc))
+
+    if not forecast.points:
+        return _fallback_forecast_point("forecast returned no points")
+
+    # Prefer the 60-minute prediction because the product promise is 30-60 min.
+    for point in forecast.points:
+        if point.minutes_ahead == 60:
+            return point
+
+    return forecast.points[-1]
 
 
 async def _score_route(
-    road_points: List[Tuple[float, float]], n_segments: int = 6
-) -> Tuple[List[RouteSegment], float]:
-    """Score one route. Returns (segments, max_flood_prob)."""
+    road_points: List[Point],
+    n_segments: int = 6,
+) -> Tuple[List[RouteSegment], float, Passability, ConfidenceLevel]:
+    """Score one route.
+
+    Returns:
+        segments, max_flood_prob, overall_passability, overall_confidence
+    """
+
     chunks = sample_route_points(road_points, n_segments=n_segments)
 
-    # Score all segments in parallel — big speedup vs sequential.
-    scores = await asyncio.gather(
-        *[_score_segment_midpoint(s, e) for (s, e, _) in chunks]
+    if not chunks:
+        return [], 0.0, "unknown", "low"
+
+    # Score all segments in parallel for speed.
+    forecast_points = await asyncio.gather(
+        *[_score_segment_midpoint(start, end) for (start, end, _chunk) in chunks]
     )
 
     segments: List[RouteSegment] = []
     max_prob = 0.0
-    for (start, end, chunk), (prob, risk) in zip(chunks, scores):
+    best_confidence: ConfidenceLevel = "low"
+
+    for (start, end, chunk), forecast_point in zip(chunks, forecast_points):
+        prob = _prob_from_point(forecast_point)
         max_prob = max(max_prob, prob)
+
+        if _confidence_rank(forecast_point.confidence) > _confidence_rank(best_confidence):
+            best_confidence = forecast_point.confidence
+
         segments.append(
             RouteSegment(
                 start=Coord(lat=start[0], lng=start[1]),
@@ -72,129 +156,165 @@ async def _score_route(
                 points=[Coord(lat=p[0], lng=p[1]) for p in chunk],
                 flood_prob=round(prob, 3),
                 risk_score=round(prob, 3),
-                risk_level=risk,
-                passability=point.passability,
-                confidence=point.confidence,
-                evidence=point.evidence,
+                risk_level=forecast_point.risk_level,
+                passability=forecast_point.passability,
+                confidence=forecast_point.confidence,
+                evidence=forecast_point.evidence,
             )
         )
-    return segments, max_prob
+
+    overall_passability = _passability_for_prob(max_prob)
+    return segments, max_prob, overall_passability, best_confidence
+
+
+def _straight_line_points(from_: Coord, to: Coord, n_points: int = 7) -> List[Point]:
+    """Fallback route if GraphHopper fails or API key is missing."""
+
+    out: List[Point] = []
+
+    for i in range(n_points):
+        t = i / (n_points - 1)
+        out.append(
+            (
+                from_.lat + (to.lat - from_.lat) * t,
+                from_.lng + (to.lng - from_.lng) * t,
+            )
+        )
+
+    return out
 
 
 async def find_safe_route(
-    from_: Coord, to: Coord, depart_at_min: int = 0
+    from_: Coord,
+    to: Coord,
+    depart_at_min: int = 0,
 ) -> RouteResponse:
-    # Try to get multiple alternative routes from GraphHopper
+    """Find the safest route, not necessarily the fastest route."""
+
+    # Try real road routes first.
     roads = await fetch_road_routes(
-        from_.lat, from_.lng, to.lat, to.lng, max_paths=3
+        from_.lat,
+        from_.lng,
+        to.lat,
+        to.lng,
+        max_paths=3,
     )
 
-    # --- Fallback: no GraphHopper. Single straight-line route. ---
+    # Fallback: straight-line route if GraphHopper is unavailable.
     if not roads:
-        N = 5
-        chunks = []
-        for i in range(N):
-            t0 = i / N
-            t1 = (i + 1) / N
-            a = (from_.lat + (to.lat - from_.lat) * t0, from_.lng + (to.lng - from_.lng) * t0)
-            b = (from_.lat + (to.lat - from_.lat) * t1, from_.lng + (to.lng - from_.lng) * t1)
-            chunks.append((a, b, [a, b]))
-
-        scores = await asyncio.gather(
-            *[_score_segment_midpoint(s, e) for (s, e, _) in chunks]
+        road_points = _straight_line_points(from_, to, n_points=7)
+        segments, max_prob, overall_passability, confidence = await _score_route(
+            road_points,
+            n_segments=6,
         )
-        segments: List[RouteSegment] = []
-        max_prob = 0.0
-        for (start, end, chunk), (prob, risk) in zip(chunks, scores):
-            max_prob = max(max_prob, prob)
-            segments.append(
-                RouteSegment(
-                    start=Coord(lat=start[0], lng=start[1]),
-                    end=Coord(lat=end[0], lng=end[1]),
-                    points=[Coord(lat=p[0], lng=p[1]) for p in chunk],
-                    flood_prob=round(prob, 3),
-                    risk_level=risk,
-                )
-            )
+
         distance_km = _haversine_km(from_.lat, from_.lng, to.lat, to.lng)
         eta_min = max(1, int(distance_km / 25 * 60))
-        overall = _risk_for_prob(max_prob)
-        rec = _recommendation_for(overall, rerouted=False)
+
+        overall_risk = _risk_for_prob(max_prob)
+
         return RouteResponse(
             distance_km=round(distance_km, 2),
             eta_min=eta_min,
             segments=segments,
-            overall_risk=overall,
-            recommendation=rec,
+            overall_risk=overall_risk,
+            overall_passability=overall_passability,
+            confidence=confidence,
+            recommendation=_recommendation_for(
+                overall_risk,
+                overall_passability,
+                rerouted=False,
+            ),
             rerouted=False,
             alternatives=[],
         )
 
-    # --- Score every alternative route in parallel ---
+    # Score every GraphHopper alternative route in parallel.
     scored = await asyncio.gather(
         *[_score_route(road["points"], n_segments=6) for road in roads]
     )
 
-    # Pair each scored route with its road metadata
     candidates = []
-    for idx, (road, (segments, max_prob)) in enumerate(zip(roads, scored)):
-        candidates.append({
-            "idx": idx,                 # 0 = fastest from GraphHopper
-            "road": road,
-            "segments": segments,
-            "max_prob": max_prob,
-            "overall_risk": _risk_for_prob(max_prob),
-        })
 
-    # --- Pick safest: lowest max_prob, tie-break on fastest (lower idx) ---
+    for idx, (road, score) in enumerate(zip(roads, scored)):
+        segments, max_prob, overall_passability, confidence = score
+
+        candidates.append(
+            {
+                "idx": idx,
+                "road": road,
+                "segments": segments,
+                "max_prob": max_prob,
+                "overall_risk": _risk_for_prob(max_prob),
+                "overall_passability": overall_passability,
+                "confidence": confidence,
+            }
+        )
+
+    # Choose safest route by max segment risk. Tie-break on GraphHopper fastest.
     chosen = min(candidates, key=lambda c: (c["max_prob"], c["idx"]))
-    rerouted = chosen["idx"] != 0  # we picked a non-fastest path for safety
+    rerouted = chosen["idx"] != 0
 
-    # Build the alternatives list (everything we didn't pick)
     alternatives: List[AlternativeRoute] = []
-    for c in candidates:
-        if c["idx"] == chosen["idx"]:
+
+    for candidate in candidates:
+        if candidate["idx"] == chosen["idx"]:
             continue
+
+        road = candidate["road"]
+
         alternatives.append(
             AlternativeRoute(
-                distance_km=round(c["road"]["distance_m"] / 1000.0, 2),
-                eta_min=max(1, int(c["road"]["time_ms"] / 60000.0)),
-                overall_risk=c["overall_risk"],
-                flood_prob_max=round(c["max_prob"], 3),
-                points=[Coord(lat=p[0], lng=p[1]) for p in c["road"]["points"]],
-                is_fastest=(c["idx"] == 0),
+                distance_km=round(road["distance_m"] / 1000.0, 2),
+                eta_min=max(1, int(road["time_ms"] / 60000.0)),
+                overall_risk=candidate["overall_risk"],
+                flood_prob_max=round(candidate["max_prob"], 3),
+                points=[Coord(lat=p[0], lng=p[1]) for p in road["points"]],
+                is_fastest=(candidate["idx"] == 0),
             )
         )
 
     chosen_road = chosen["road"]
-    chosen_overall = chosen["overall_risk"]
-    rec = _recommendation_for(chosen_overall, rerouted=rerouted)
 
     return RouteResponse(
         distance_km=round(chosen_road["distance_m"] / 1000.0, 2),
         eta_min=max(1, int(chosen_road["time_ms"] / 60000.0)),
         segments=chosen["segments"],
-        overall_risk=chosen_overall,
-        recommendation=rec,
+        overall_risk=chosen["overall_risk"],
+        overall_passability=chosen["overall_passability"],
+        confidence=chosen["confidence"],
+        recommendation=_recommendation_for(
+            chosen["overall_risk"],
+            chosen["overall_passability"],
+            rerouted=rerouted,
+        ),
         rerouted=rerouted,
         alternatives=alternatives,
     )
 
 
-def _recommendation_for(overall: str, rerouted: bool) -> str:
-    """Pick a natural-language tip for the chosen route."""
-    if rerouted:
-        if overall == "low":
-            return "Rerouted around flood-prone path. Your trip is now safe."
-        if overall == "moderate":
-            return "Rerouted around heavy flooding. This path has minor wet spots — watch the highlighted segments."
-        # If we rerouted but it's still high/severe, all options were bad
-        return "All available routes have flooding risk. Chose the least-risky path. Consider delaying."
+def _recommendation_for(
+    overall_risk: RiskLevel,
+    overall_passability: Passability,
+    rerouted: bool,
+) -> str:
+    """Human-readable route recommendation."""
 
-    if overall == "severe":
-        return "Strongly recommend delaying or finding alternate route. Heavy flooding likely."
-    if overall == "high":
-        return "Route has flood-prone segments. Consider delaying or alternate transport."
-    if overall == "moderate":
-        return "Mostly clear. Watch the highlighted segments."
-    return "Route looks safe in the next 60-90 minutes."
+    prefix = ""
+
+    if rerouted:
+        prefix = "Rerouted around a higher-risk flood path. "
+
+    if overall_passability == "impassable" or overall_risk == "severe":
+        return prefix + "Strongly recommend delaying. Flooding may be unsafe for motorbikes."
+
+    if overall_passability == "avoid_for_motorbikes" or overall_risk == "high":
+        return prefix + "Avoid this route if possible. Some segments may stall motorbikes."
+
+    if overall_passability == "slow_pass" or overall_risk == "moderate":
+        return prefix + "Mostly passable, but slow down near highlighted wet segments."
+
+    if overall_passability == "unknown":
+        return prefix + "Insufficient evidence. Proceed carefully and check rider reports."
+
+    return prefix + "Route looks safe for normal motorbike travel in the next 30-60 minutes."
