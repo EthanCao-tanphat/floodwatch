@@ -1,51 +1,163 @@
-# Smart Manufacturing & IoT Simulation
+# FloodWatch
 
-> Mo phong tuong tac cac du an san xuat thong minh — xem truc tiep tren trinh duyet.
+**FloodWatch** is a predictive flood-aware routing platform for Vietnamese motorbike riders.
 
-## Demo truc tuyen
+Instead of only showing where flooding has already happened, FloodWatch estimates flood risk along a rider's route in the next 30–60 minutes and recommends whether the route is safe, slow-passable, risky for motorbikes, or should be delayed.
 
-Sau khi deploy len GitHub Pages, doi tac co the truy cap tai:
+> Flood risk before it reaches your route.
 
-```
-https://<username>.github.io/<repo-name>/
-```
+---
 
-## Danh sach project
+## What FloodWatch does
 
-| Project | Mo ta | File |
-|---------|-------|------|
-| Day chuyen chiet rot nuoc | Mo phong SCADA 13 buoc san xuat tu nhua tai che, 6 CCP, thong so ky thuat | `chiet-rot.html` |
-| Robot hut bui thong minh | AI LiDAR navigation, ne vat can, tu dong lau + sac, dashboard realtime | `robot-hut-bui.html` |
-| Bao cao kha thi Robot $299 | Phan tich thi truong, BOM, doi thu, bang sang che, chien luoc GTM | `bao-cao-kha-thi.md` |
+FloodWatch helps riders answer one practical question:
 
-## Cong nghe su dung
+> Will this route still be passable for my motorbike soon?
 
-- HTML5 Canvas — mo phong realtime
-- Vanilla JavaScript — khong can framework
-- CSS3 Animations — hieu ung dong
-- Responsive Design — tuong thich mobile
+The app lets a user enter an origin and destination, then generates multiple route options. Each route is scored segment by segment using flood-risk evidence, and the user can compare options like Google Maps — but with flood risk, passability, and explanation.
 
-## Cau truc thu muc
+---
 
-```
-/
-├── index.html            ← Trang chu (landing page)
-├── chiet-rot.html        ← Mo phong day chuyen chiet rot
-├── robot-hut-bui.html    ← Mo phong robot hut bui
-├── bao-cao-kha-thi.md    ← Bao cao phan tich kha thi
-└── README.md             ← File nay
-```
+## Core flow
 
-## Huong dan deploy
+1. User enters origin and destination.
+2. FloodWatch generates route options.
+3. Each route is split into scored segments.
+4. Risky segments are highlighted on the map.
+5. The app explains why a segment is risky.
+6. The user receives a motorbike passability recommendation.
 
-Xem chi tiet tai file `HUONG-DAN-DEPLOY.md`
+---
 
-**Nhanh nhat (2 phut):**
-1. Tao repo moi tren GitHub
-2. Upload toan bo file
-3. Settings → Pages → Branch: main → Save
-4. Doi 1-2 phut → truy cap link
+## Key features
 
-## Lien he
+- Vietnam-wide flood-aware routing with confidence tiers
+- Google Maps-style selectable route options
+- Segment-by-segment flood risk scoring
+- Motorbike passability labels:
+  - `safe`
+  - `slow_pass`
+  - `avoid_for_motorbikes`
+  - `impassable`
+  - `unknown`
+- Clickable map segment evidence popups
+- Historical flood hotspot layer
+- Live rider report layer
+- Rider photo report flow
+- Rider reports can influence nearby route risk
+- Draggable floating route panel
+- Typed address, coordinate, and map-pick input support
 
-Du an nay duoc tao de trinh bay cho doi tac va nha dau tu.
+---
+
+## Coverage tiers
+
+FloodWatch supports Vietnam-wide routing, but prediction confidence depends on available local evidence.
+
+### Tier 1 — Full prediction
+
+Current strongest pilot area:
+
+- Ho Chi Minh City
+
+Signals:
+
+- Rainfall forecast
+- Tide-pressure proxy
+- Historical flood hotspots
+- Drainage proxy
+- Rider reports
+
+### Tier 2 — Partial prediction
+
+Examples:
+
+- Da Nang
+- Can Tho
+- Hue
+- Nha Trang
+- Hanoi
+- Hai Phong
+- Vung Tau
+- Bien Hoa
+
+Signals:
+
+- Rainfall forecast
+- Coastal or tide-pressure signal where relevant
+- Rider reports
+- Limited local hotspot or drainage evidence
+
+### Tier 3 — Rain-only warning
+
+Anywhere else in Vietnam.
+
+Signals:
+
+- Real route
+- Rainfall forecast
+- Rider reports when available
+
+---
+
+## Data honesty
+
+FloodWatch does **not** claim that every data layer is fully official or real-time nationwide.
+
+| Layer | Current status |
+|---|---|
+| Base map | Real map data |
+| Road routing | Real route geometry if GraphHopper is available |
+| Rainfall forecast | Real Open-Meteo forecast, cached for stability |
+| Rider reports | Real for current app/demo session |
+| Photo report | Real image, AI-estimated passability |
+| Flood risk score | Algorithmic prediction |
+| Motorbike passability | Model-estimated |
+| Hotspots | Curated / approximate pilot evidence |
+| Drainage | Proxy, not official full network |
+| Tide | Modeled tide-pressure proxy, not official station feed |
+
+Best honest product statement:
+
+> FloodWatch uses real routing and rainfall forecast data, then combines them with modeled tide pressure, curated flood-hotspot evidence, drainage proxy scores, and rider reports to estimate motorbike passability risk.
+
+---
+
+## Tech stack
+
+### Frontend
+
+- React
+- Vite
+- TypeScript
+- Tailwind CSS
+- MapLibre GL
+- Three.js globe intro
+- Framer Motion
+
+### Backend
+
+- FastAPI
+- Python
+- Pydantic
+- httpx
+- asyncio
+
+### Data and AI
+
+- GraphHopper Directions API
+- Open-Meteo rainfall forecast
+- Open-Meteo Marine tide-pressure proxy
+- Qwen-VL for photo passability classification
+- Local flood hotspot JSON
+- In-memory rider reports for the demo
+
+---
+
+## Local setup
+
+### Backend
+
+```bash
+cd ~/floodwatch/api
+/usr/bin/python3 -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
