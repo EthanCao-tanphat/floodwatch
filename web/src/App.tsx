@@ -3,18 +3,20 @@ import { AnimatePresence, motion } from 'framer-motion'
 
 import { AlertsPanel } from './components/AlertsPanel'
 import { DashboardShell } from './components/DashboardShell'
+import { FloatingPanel } from './components/FloatingPanel'
 import { LandingScreen } from './components/LandingScreen'
 import { LayersPanel } from './components/LayersPanel'
 import { MapView } from './components/MapView'
 import { PhotoReport } from './components/PhotoReport'
 import { RouteInput } from './components/RouteInput'
+import { RouteChoices } from './components/RouteChoices'
 import { RouteResults } from './components/RouteResults'
 import { SettingsPanel } from './components/SettingsPanel'
 import { StatsPanel } from './components/StatsPanel'
 
 import { api } from './api/client'
 import { useT } from './i18n/context'
-import type { Coord, LayerKey, LayerSettings, MapEvidenceResponse, RouteResponse, StatusResponse } from './types'
+import type { Coord, LayerKey, LayerSettings, MapEvidenceResponse, RouteCandidate, RouteResponse, StatusResponse } from './types'
 
 const GlobeIntro = lazy(() =>
   import('./components/GlobeIntro').then((module) => ({
@@ -34,6 +36,35 @@ const DEFAULT_LAYERS: LayerSettings = {
   reports: true,
 }
 
+
+function responseFromRouteCandidate(
+  base: RouteResponse,
+  selected: RouteCandidate
+): RouteResponse {
+  return {
+    ...base,
+    distance_km: selected.distance_km,
+    eta_min: selected.eta_min,
+    segments: selected.segments,
+    overall_risk: selected.overall_risk,
+    overall_passability: selected.overall_passability,
+    confidence: selected.confidence,
+    recommendation: selected.recommendation,
+    selected_route_id: selected.id,
+    alternatives: (base.routes ?? [])
+      .filter((r) => r.id !== selected.id)
+      .map((r) => ({
+        distance_km: r.distance_km,
+        eta_min: r.eta_min,
+        overall_risk: r.overall_risk,
+        flood_prob_max: r.flood_prob_max,
+        points: r.points,
+        is_fastest: r.is_fastest,
+        route_id: r.id,
+      })),
+  }
+}
+
 export default function App() {
   const { t } = useT()
 
@@ -46,6 +77,7 @@ export default function App() {
   const [tapMode, setTapMode] = useState<'from' | 'to' | null>(null)
 
   const [result, setResult] = useState<RouteResponse | null>(null)
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [mapEvidence, setMapEvidence] = useState<MapEvidenceResponse | null>(null)
   const [layers, setLayers] = useState<LayerSettings>(DEFAULT_LAYERS)
@@ -139,6 +171,12 @@ export default function App() {
     try {
       const r = await api.route(from, to)
       setResult(r)
+      setSelectedRouteId(
+        r.selected_route_id ??
+          r.recommended_route_id ??
+          r.routes?.[0]?.id ??
+          null
+      )
       setActiveNav('routes')
       setPanel('routes')
       void refreshStatus()
@@ -155,6 +193,14 @@ export default function App() {
       [key]: !prev[key],
     }))
   }
+
+  const selectedRoute =
+    result?.routes?.find((route) => route.id === selectedRouteId) ?? null
+
+  const visibleResult =
+    result && selectedRoute
+      ? responseFromRouteCandidate(result, selectedRoute)
+      : result
 
   const statsPanel = (
     <StatsPanel
@@ -200,17 +246,20 @@ export default function App() {
               <MapView
                 from={from}
                 to={to}
-                segments={result?.segments}
-                alternatives={result?.alternatives}
+                segments={visibleResult?.segments}
+                alternatives={visibleResult?.alternatives}
                 hotspots={mapEvidence?.hotspots ?? []}
                 reports={mapEvidence?.reports ?? []}
                 layers={layers}
+                routeOptions={result?.routes ?? []}
+                selectedRouteId={selectedRouteId}
+                onSelectRoute={(routeId) => setSelectedRouteId(routeId)}
                 onMapTap={handleMapTap}
                 tapMode={tapMode}
               />
 
               {panel && (
-                <div className="fixed bottom-4 left-20 right-4 z-30 md:bottom-auto md:left-auto md:right-6 md:top-24 md:w-[410px]">
+                <FloatingPanel title="FloodWatch route panel">
                   {panel === 'routes' &&
                     (!result ? (
                       <RouteInput
@@ -225,15 +274,26 @@ export default function App() {
                         loading={loading}
                       />
                     ) : (
-                      <RouteResults
-                        result={result}
-                        onClose={() => {
-                          setResult(null)
-                          setFrom(null)
-                          setTo(null)
-                          setPanel('routes')
-                        }}
-                      />
+                      <div className="space-y-3">
+                        <RouteChoices
+                          routes={result.routes ?? []}
+                          selectedRouteId={selectedRouteId}
+                          recommendedRouteId={result.recommended_route_id}
+                          coverage={result.coverage}
+                          onSelectRoute={setSelectedRouteId}
+                        />
+
+                        <RouteResults
+                          result={visibleResult ?? result}
+                          onClose={() => {
+                            setResult(null)
+                            setSelectedRouteId(null)
+                            setFrom(null)
+                            setTo(null)
+                            setPanel('routes')
+                          }}
+                        />
+                      </div>
                     ))}
 
                   {panel === 'reports' && (
@@ -248,7 +308,7 @@ export default function App() {
 
                   {panel === 'alerts' && (
                     <AlertsPanel
-                      result={result}
+                      result={visibleResult}
                       status={status}
                       onClose={() => setPanel(null)}
                     />
@@ -270,7 +330,7 @@ export default function App() {
                       onClose={() => setPanel(null)}
                     />
                   )}
-                </div>
+                </FloatingPanel>
               )}
             </div>
           </DashboardShell>
