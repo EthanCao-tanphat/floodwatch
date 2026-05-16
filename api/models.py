@@ -1,7 +1,4 @@
-"""Pydantic schemas for FloodWatch API.
-
-These models mirror the frontend TypeScript contract.
-"""
+"""Pydantic schemas for FloodWatch API."""
 
 from typing import List, Literal, Optional
 
@@ -34,6 +31,22 @@ class RiskEvidence(BaseModel):
     drainage_score: Optional[float] = None
     report_count: int = 0
     photo_confirmed: bool = False
+
+
+class CoverageSignals(BaseModel):
+    rainfall: bool = True
+    tide: bool = False
+    hotspots: bool = False
+    drainage: bool = False
+    rider_reports: bool = True
+
+
+class CoverageInfo(BaseModel):
+    tier: int
+    label: str
+    city: str
+    signals: CoverageSignals
+    confidence_note: str
 
 
 # ---------- /forecast/segment ----------
@@ -89,17 +102,39 @@ class RouteSegment(BaseModel):
 
 
 class AlternativeRoute(BaseModel):
-    """A rejected/ranked-lower alternative route, shown dimmed on the map."""
-
     distance_km: float
     eta_min: int
     overall_risk: RiskLevel
     flood_prob_max: float
     points: List[Coord]
     is_fastest: bool = False
+    route_id: Optional[str] = None
+
+
+class RouteCandidate(BaseModel):
+    id: str
+    label: str
+    distance_km: float
+    eta_min: int
+    points: List[Coord]
+    segments: List[RouteSegment]
+
+    overall_risk: RiskLevel
+    overall_passability: Passability
+    confidence: ConfidenceLevel
+
+    recommendation: str
+    flood_prob_max: float
+
+    is_recommended: bool = False
+    is_fastest: bool = False
+    is_safest: bool = False
+
+    tradeoff_summary: str = ""
 
 
 class RouteResponse(BaseModel):
+    # Backward-compatible selected route fields.
     distance_km: float
     eta_min: int
     segments: List[RouteSegment]
@@ -111,6 +146,16 @@ class RouteResponse(BaseModel):
     recommendation: str
     rerouted: bool = False
     alternatives: List[AlternativeRoute] = []
+
+    # New Google-Maps-style route candidates.
+    routes: List[RouteCandidate] = []
+    selected_route_id: Optional[str] = None
+    recommended_route_id: Optional[str] = None
+    fastest_route_id: Optional[str] = None
+    safest_route_id: Optional[str] = None
+
+    # Vietnam-wide confidence tier.
+    coverage: Optional[CoverageInfo] = None
 
 
 # ---------- /report/depth ----------

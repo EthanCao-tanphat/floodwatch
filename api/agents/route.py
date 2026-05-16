@@ -14,15 +14,18 @@ from models import (
     AlternativeRoute,
     ConfidenceLevel,
     Coord,
+    CoverageInfo,
     ForecastPoint,
     Passability,
     RiskEvidence,
     RiskLevel,
+    RouteCandidate,
     RouteResponse,
     RouteSegment,
 )
 from agents.forecast import forecast_segment
 from services.graphhopper import fetch_road_routes, sample_route_points
+from services.coverage_tiers import coverage_for_route
 from services.reports import report_evidence_for_segment
 
 
@@ -217,14 +220,100 @@ def _straight_line_points(from_: Coord, to: Coord, n_points: int = 7) -> List[Po
     return out
 
 
+
+
+def _coverage_info_for(points: List[Point]) -> CoverageInfo:
+    return CoverageInfo(**coverage_for_route(points))
+
+
+def _route_label(idx: int, recommended_idx: int, safest_idx: int) -> str:
+    if idx == recommended_idx:
+        return "Recommended"
+    if idx == 0:
+        return "Fastest"
+    if idx == safest_idx:
+        return "Safest"
+    return f"Alternative {idx + 1}"
+
+
+def _tradeoff_summary(
+    idx: int,
+    max_prob: float,
+    fastest_eta_min: int,
+    eta_min: int,
+    recommended_idx: int,
+) -> str:
+    risk_pct = round(max_prob * 100)
+
+    if idx == recommended_idx and idx != 0:
+        extra = max(0, eta_min - fastest_eta_min)
+        return f"+{extra} min, avoids a higher-risk flood path"
+
+    if idx == 0 and idx != recommended_idx:
+        return f"Fastest, but reaches {risk_pct}% flood risk"
+
+    if max_prob < 0.25:
+        return "Lowest flood exposure"
+
+    if max_prob < 0.55:
+        return "Moderate flood exposure"
+
+    if max_prob < 0.80:
+        return "High-risk segment included"
+
+    return "Severe flood exposure"
+
+
+def _route_candidate_for(
+    idx: int,
+    road: dict,
+    segments: List[RouteSegment],
+    max_prob: float,
+    overall_passability: Passability,
+    confidence: ConfidenceLevel,
+    recommended_idx: int,
+    safest_idx: int,
+    fastest_eta_min: int,
+) -> RouteCandidate:
+    eta_min = max(1, int(road["time_ms"] / 60000.0))
+    risk = _risk_for_prob(max_prob)
+
+    return RouteCandidate(
+        id=f"route_{idx}",
+        label=_route_label(idx, recommended_idx, safest_idx),
+        distance_km=round(road["distance_m"] / 1000.0, 2),
+        eta_min=eta_min,
+        points=[Coord(lat=p[0], lng=p[1]) for p in road["points"]],
+        segments=segments,
+        overall_risk=risk,
+        overall_passability=overall_passability,
+        confidence=confidence,
+        recommendation=_recommendation_for(
+            risk,
+            overall_passability,
+            rerouted=(idx != 0),
+        ),
+        flood_prob_max=round(max_prob, 3),
+        is_recommended=(idx == recommended_idx),
+        is_fastest=(idx == 0),
+        is_safest=(idx == safest_idx),
+        tradeoff_summary=_tradeoff_summary(
+            idx,
+            max_prob,
+            fastest_eta_min,
+            eta_min,
+            recommended_idx,
+        ),
+    )
+
+
 async def find_safe_route(
     from_: Coord,
     to: Coord,
     depart_at_min: int = 0,
 ) -> RouteResponse:
-    """Find the safest route, not necessarily the fastest route."""
+    """Find safest/recommended route and return all selectable candidates."""
 
-    # Try real road routes first.
     roads = await fetch_road_routes(
         from_.lat,
         from_.lng,
@@ -243,8 +332,25 @@ async def find_safe_route(
 
         distance_km = _haversine_km(from_.lat, from_.lng, to.lat, to.lng)
         eta_min = max(1, int(distance_km / 25 * 60))
-
         overall_risk = _risk_for_prob(max_prob)
+
+        fallback_road = {
+            "points": road_points,
+            "distance_m": distance_km * 1000,
+            "time_ms": eta_min * 60000,
+        }
+
+        candidate = _route_candidate_for(
+            idx=0,
+            road=fallback_road,
+            segments=segments,
+            max_prob=max_prob,
+            overall_passability=overall_passability,
+            confidence=confidence,
+            recommended_idx=0,
+            safest_idx=0,
+            fastest_eta_min=eta_min,
+        )
 
         return RouteResponse(
             distance_km=round(distance_km, 2),
@@ -253,26 +359,27 @@ async def find_safe_route(
             overall_risk=overall_risk,
             overall_passability=overall_passability,
             confidence=confidence,
-            recommendation=_recommendation_for(
-                overall_risk,
-                overall_passability,
-                rerouted=False,
-            ),
+            recommendation=candidate.recommendation,
             rerouted=False,
             alternatives=[],
+            routes=[candidate],
+            selected_route_id=candidate.id,
+            recommended_route_id=candidate.id,
+            fastest_route_id=candidate.id,
+            safest_route_id=candidate.id,
+            coverage=_coverage_info_for(road_points),
         )
 
-    # Score every GraphHopper alternative route in parallel.
     scored = await asyncio.gather(
         *[_score_route(road["points"], n_segments=6) for road in roads]
     )
 
-    candidates = []
+    candidates_raw = []
 
     for idx, (road, score) in enumerate(zip(roads, scored)):
         segments, max_prob, overall_passability, confidence = score
 
-        candidates.append(
+        candidates_raw.append(
             {
                 "idx": idx,
                 "road": road,
@@ -284,45 +391,75 @@ async def find_safe_route(
             }
         )
 
-    # Choose safest route by max segment risk. Tie-break on GraphHopper fastest.
-    chosen = min(candidates, key=lambda c: (c["max_prob"], c["idx"]))
-    rerouted = chosen["idx"] != 0
+    # GraphHopper index 0 is fastest. Safest is lowest max flood probability.
+    safest = min(candidates_raw, key=lambda c: (c["max_prob"], c["idx"]))
+    safest_idx = int(safest["idx"])
 
-    alternatives: List[AlternativeRoute] = []
+    # Recommended currently equals safest. This keeps FloodWatch's promise:
+    # not only fastest, but safest for motorbike passability.
+    recommended_idx = safest_idx
+    recommended_raw = candidates_raw[recommended_idx]
 
-    for candidate in candidates:
-        if candidate["idx"] == chosen["idx"]:
-            continue
+    fastest_eta_min = max(1, int(candidates_raw[0]["road"]["time_ms"] / 60000.0))
 
-        road = candidate["road"]
+    route_candidates: List[RouteCandidate] = []
 
-        alternatives.append(
-            AlternativeRoute(
-                distance_km=round(road["distance_m"] / 1000.0, 2),
-                eta_min=max(1, int(road["time_ms"] / 60000.0)),
-                overall_risk=candidate["overall_risk"],
-                flood_prob_max=round(candidate["max_prob"], 3),
-                points=[Coord(lat=p[0], lng=p[1]) for p in road["points"]],
-                is_fastest=(candidate["idx"] == 0),
+    for candidate in candidates_raw:
+        route_candidates.append(
+            _route_candidate_for(
+                idx=int(candidate["idx"]),
+                road=candidate["road"],
+                segments=candidate["segments"],
+                max_prob=float(candidate["max_prob"]),
+                overall_passability=candidate["overall_passability"],
+                confidence=candidate["confidence"],
+                recommended_idx=recommended_idx,
+                safest_idx=safest_idx,
+                fastest_eta_min=fastest_eta_min,
             )
         )
 
-    chosen_road = chosen["road"]
+    selected = route_candidates[recommended_idx]
+    rerouted = recommended_idx != 0
+
+    alternatives: List[AlternativeRoute] = []
+
+    for candidate in route_candidates:
+        if candidate.id == selected.id:
+            continue
+
+        alternatives.append(
+            AlternativeRoute(
+                distance_km=candidate.distance_km,
+                eta_min=candidate.eta_min,
+                overall_risk=candidate.overall_risk,
+                flood_prob_max=candidate.flood_prob_max,
+                points=candidate.points,
+                is_fastest=candidate.is_fastest,
+                route_id=candidate.id,
+            )
+        )
+
+    fastest_id = route_candidates[0].id
+    safest_id = route_candidates[safest_idx].id
+    recommended_id = selected.id
 
     return RouteResponse(
-        distance_km=round(chosen_road["distance_m"] / 1000.0, 2),
-        eta_min=max(1, int(chosen_road["time_ms"] / 60000.0)),
-        segments=chosen["segments"],
-        overall_risk=chosen["overall_risk"],
-        overall_passability=chosen["overall_passability"],
-        confidence=chosen["confidence"],
-        recommendation=_recommendation_for(
-            chosen["overall_risk"],
-            chosen["overall_passability"],
-            rerouted=rerouted,
-        ),
+        distance_km=selected.distance_km,
+        eta_min=selected.eta_min,
+        segments=selected.segments,
+        overall_risk=selected.overall_risk,
+        overall_passability=selected.overall_passability,
+        confidence=selected.confidence,
+        recommendation=selected.recommendation,
         rerouted=rerouted,
         alternatives=alternatives,
+        routes=route_candidates,
+        selected_route_id=selected.id,
+        recommended_route_id=recommended_id,
+        fastest_route_id=fastest_id,
+        safest_route_id=safest_id,
+        coverage=_coverage_info_for([(p.lat, p.lng) for p in selected.points]),
     )
 
 

@@ -8,6 +8,7 @@ import type {
   LayerSettings,
   MapHotspot,
   RiderReport,
+  RouteCandidate,
   RouteSegment,
 } from '../types'
 
@@ -44,6 +45,9 @@ interface Props {
   hotspots?: MapHotspot[]
   reports?: RiderReport[]
   layers?: LayerSettings
+  routeOptions?: RouteCandidate[]
+  selectedRouteId?: string | null
+  onSelectRoute?: (routeId: string) => void
   onMapTap: (coord: Coord) => void
   tapMode: 'from' | 'to' | null
 }
@@ -137,6 +141,9 @@ export function MapView({
   hotspots = [],
   reports = [],
   layers = DEFAULT_LAYERS,
+  routeOptions = [],
+  selectedRouteId = null,
+  onSelectRoute,
   onMapTap,
   tapMode,
 }: Props) {
@@ -147,8 +154,13 @@ export function MapView({
   const segmentMarkersRef = useRef<Marker[]>([])
   const evidenceMarkersRef = useRef<Marker[]>([])
   const clickHandlerAttachedRef = useRef(false)
+  const onSelectRouteRef = useRef<Props['onSelectRoute']>(undefined)
 
   const activeLayers = useMemo(() => ({ ...DEFAULT_LAYERS, ...layers }), [layers])
+
+  useEffect(() => {
+    onSelectRouteRef.current = onSelectRoute
+  }, [onSelectRoute])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -279,7 +291,21 @@ export function MapView({
         map.getCanvas().style.cursor = 'pointer'
       })
 
-      map.on('mouseleave', 'fw-route-segments-line', () => {
+      // fw-alternatives-line selectable click
+      map.on('click', 'fw-alternatives-line', (e: any) => {
+        const feature = e.features?.[0]
+        const routeId = feature?.properties?.routeId
+
+        if (routeId && onSelectRouteRef.current) {
+          onSelectRouteRef.current(String(routeId))
+        }
+      })
+
+      map.on('mouseenter', 'fw-alternatives-line', () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+
+      map.on('mouseleave', 'fw-alternatives-line', () => {
         map.getCanvas().style.cursor = ''
       })
 
@@ -327,17 +353,36 @@ export function MapView({
         }
       })
 
-      const altFeatures = alternatives.map((alt, index) => ({
-        type: 'Feature',
-        properties: {
-          index: String(index + 1),
-          risk: alt.overall_risk,
-        },
-        geometry: {
-          type: 'LineString',
-          coordinates: alt.points.map((c) => [c.lng, c.lat]),
-        },
-      }))
+      const inactiveRouteOptions = routeOptions.filter(
+        (route) => route.id !== selectedRouteId
+      )
+
+      const altFeatures =
+        inactiveRouteOptions.length > 0
+          ? inactiveRouteOptions.map((route, index) => ({
+              type: 'Feature',
+              properties: {
+                index: String(index + 1),
+                routeId: route.id,
+                risk: route.overall_risk,
+              },
+              geometry: {
+                type: 'LineString',
+                coordinates: route.points.map((c) => [c.lng, c.lat]),
+              },
+            }))
+          : alternatives.map((alt, index) => ({
+              type: 'Feature',
+              properties: {
+                index: String(index + 1),
+                routeId: alt.route_id ?? '',
+                risk: alt.overall_risk,
+              },
+              geometry: {
+                type: 'LineString',
+                coordinates: alt.points.map((c) => [c.lng, c.lat]),
+              },
+            }))
 
       const segmentSource = map.getSource('fw-route-segments') as maplibregl.GeoJSONSource
       const altSource = map.getSource('fw-alternatives') as maplibregl.GeoJSONSource
@@ -355,7 +400,7 @@ export function MapView({
 
     if (map.isStyleLoaded()) update()
     else map.once('load', update)
-  }, [segments, alternatives, activeLayers])
+  }, [segments, alternatives, routeOptions, selectedRouteId, activeLayers])
 
   useEffect(() => {
     const map = mapRef.current

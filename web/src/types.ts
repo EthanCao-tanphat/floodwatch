@@ -1,5 +1,3 @@
-// These types mirror api/models.py and API responses.
-
 export type RiskLevel = 'low' | 'moderate' | 'high' | 'severe'
 export type ConfidenceLevel = 'low' | 'medium' | 'high'
 
@@ -22,6 +20,22 @@ export interface RiskEvidence {
   drainage_score: number | null
   report_count: number
   photo_confirmed: boolean
+}
+
+export interface CoverageSignals {
+  rainfall: boolean
+  tide: boolean
+  hotspots: boolean
+  drainage: boolean
+  rider_reports: boolean
+}
+
+export interface CoverageInfo {
+  tier: number
+  label: string
+  city: string
+  signals: CoverageSignals
+  confidence_note: string
 }
 
 export interface ForecastPoint {
@@ -62,18 +76,51 @@ export interface AlternativeRoute {
   flood_prob_max: number
   points: Coord[]
   is_fastest: boolean
+  route_id?: string | null
+}
+
+export interface RouteCandidate {
+  id: string
+  label: string
+  distance_km: number
+  eta_min: number
+  points: Coord[]
+  segments: RouteSegment[]
+
+  overall_risk: RiskLevel
+  overall_passability: Passability
+  confidence: ConfidenceLevel
+
+  recommendation: string
+  flood_prob_max: number
+
+  is_recommended: boolean
+  is_fastest: boolean
+  is_safest: boolean
+
+  tradeoff_summary: string
 }
 
 export interface RouteResponse {
   distance_km: number
   eta_min: number
   segments: RouteSegment[]
+
   overall_risk: RiskLevel
   overall_passability: Passability
   confidence: ConfidenceLevel
+
   recommendation: string
   rerouted?: boolean
   alternatives?: AlternativeRoute[]
+
+  routes?: RouteCandidate[]
+  selected_route_id?: string | null
+  recommended_route_id?: string | null
+  fastest_route_id?: string | null
+  safest_route_id?: string | null
+
+  coverage?: CoverageInfo | null
 }
 
 export type DepthClass = 'dry' | 'ankle' | 'knee' | 'impassable'
@@ -96,7 +143,6 @@ export interface StatusResponse {
   pilot_city: string
 }
 
-
 export interface GeocodeResult {
   label: string
   lat: number
@@ -104,7 +150,6 @@ export interface GeocodeResult {
   source: string
   importance?: number
 }
-
 
 export interface MapHotspot {
   name: string

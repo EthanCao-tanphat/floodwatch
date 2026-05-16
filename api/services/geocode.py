@@ -233,29 +233,29 @@ def _write_cache(path: Path, data: List[Dict[str, Any]]) -> None:
 
 
 def _bias_hcmc(query: str) -> str:
+    """Bias free-text geocoding to Vietnam, not only HCMC.
+
+    Local HCMC demo roads are handled by LOCAL_PLACES before this function.
+    For everything else, append Vietnam so users can search Hanoi, Da Nang,
+    Can Tho, Hue, Nha Trang, etc.
+    """
+
     q = query.strip()
     lower = _normalize(q)
 
-    already_has_city_context = any(
+    already_has_country_context = any(
         token in lower
         for token in [
             "vietnam",
             "viet nam",
-            "ho chi minh",
-            "hcmc",
-            "sai gon",
-            "saigon",
-            "tp ho chi minh",
-            "thanh pho ho chi minh",
+            "vn",
         ]
     )
 
-    if already_has_city_context:
+    if already_has_country_context:
         return q
 
-    # Always append HCMC/Vietnam for local street names.
-    # Do NOT stop just because the query says "District 7" or "Thu Duc".
-    return f"{q}, Ho Chi Minh City, Vietnam"
+    return f"{q}, Vietnam"
 
 
 async def geocode_address(query: str, limit: int = 5) -> List[Dict[str, Any]]:
