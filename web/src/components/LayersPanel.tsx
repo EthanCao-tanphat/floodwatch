@@ -1,41 +1,52 @@
-import type { StatusResponse } from '../types'
+import type { LayerKey, LayerSettings, StatusResponse } from '../types'
 
 interface Props {
   status: StatusResponse | null
+  layers: LayerSettings
+  onToggleLayer: (key: LayerKey) => void
   onClose: () => void
 }
 
-export function LayersPanel({ status, onClose }: Props) {
-  const layers = [
-    {
-      name: 'Rain forecast',
-      detail: `${(status?.rain_now_mm ?? 0).toFixed(1)}mm now from forecast feed`,
-    },
-    {
-      name: 'Tide level',
-      detail: `${(status?.tide_level_m ?? 0).toFixed(2)}m reference tide signal`,
-    },
-    {
-      name: 'Historical flood hotspots',
-      detail: `${status?.flood_hotspots ?? 0} HCMC pilot hotspots loaded`,
-    },
-    {
-      name: 'Drainage proxy',
-      detail: 'Included in per-segment risk evidence',
-    },
-    {
-      name: 'Rider photo reports',
-      detail: `${status?.active_reports ?? 0} active report(s) in this demo session`,
-    },
-  ]
+const LAYER_ROWS: {
+  key: LayerKey
+  name: string
+  detail: (status: StatusResponse | null) => string
+}[] = [
+  {
+    key: 'routeSegments',
+    name: 'Route risk segments',
+    detail: () => 'Color-coded passability chunks along the selected route',
+  },
+  {
+    key: 'segmentNumbers',
+    name: 'Segment numbers',
+    detail: () => 'Numbered bubbles used during demo explanation',
+  },
+  {
+    key: 'alternatives',
+    name: 'Alternative routes',
+    detail: () => 'Dimmed dashed paths checked by FloodWatch',
+  },
+  {
+    key: 'hotspots',
+    name: 'Historical flood hotspots',
+    detail: (status) => `${status?.flood_hotspots ?? 0} HCMC pilot hotspots loaded`,
+  },
+  {
+    key: 'reports',
+    name: 'Rider photo reports',
+    detail: (status) => `${status?.active_reports ?? 0} active report(s) in this session`,
+  },
+]
 
+export function LayersPanel({ status, layers, onToggleLayer, onClose }: Props) {
   return (
     <div className="rounded-2xl bg-white/95 shadow-2xl border border-slate-200 p-4 text-slate-900">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h2 className="text-lg font-bold">Data layers</h2>
           <p className="text-xs text-slate-500">
-            Signals used by the FloodWatch scoring model
+            Toggle the evidence FloodWatch uses to explain route risk
           </p>
         </div>
 
@@ -49,29 +60,35 @@ export function LayersPanel({ status, onClose }: Props) {
       </div>
 
       <div className="space-y-2">
-        {layers.map((layer) => (
-          <label
-            key={layer.name}
-            className="flex items-start gap-3 rounded-xl bg-slate-50 border border-slate-100 p-3"
+        {LAYER_ROWS.map((layer) => (
+          <button
+            key={layer.key}
+            type="button"
+            onClick={() => onToggleLayer(layer.key)}
+            className="flex w-full items-start gap-3 rounded-xl bg-slate-50 border border-slate-100 p-3 text-left hover:bg-cyan-50"
           >
-            <input
-              type="checkbox"
-              checked
-              readOnly
-              className="mt-1 accent-cyan-500"
-            />
+            <span
+              className={`mt-1 h-5 w-5 rounded-md border flex items-center justify-center text-xs font-black ${
+                layers[layer.key]
+                  ? 'border-cyan-500 bg-cyan-500 text-white'
+                  : 'border-slate-300 bg-white text-transparent'
+              }`}
+            >
+              ✓
+            </span>
 
-            <div>
-              <div className="font-semibold text-sm">{layer.name}</div>
-              <div className="text-xs text-slate-500">{layer.detail}</div>
-            </div>
-          </label>
+            <span>
+              <span className="block font-semibold text-sm">{layer.name}</span>
+              <span className="block text-xs text-slate-500">
+                {layer.detail(status)}
+              </span>
+            </span>
+          </button>
         ))}
       </div>
 
       <div className="mt-3 rounded-xl bg-cyan-50 border border-cyan-100 p-3 text-xs text-cyan-900">
-        For the preliminary demo, these layers are surfaced as evidence and route
-        scoring signals. Full map layer toggles can be built for the final round.
+        Hotspots and reports are map evidence. Route segments are the prediction result.
       </div>
     </div>
   )

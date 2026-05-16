@@ -1,274 +1,414 @@
-import { useEffect, useRef, useState } from 'react'
-import maplibregl from 'maplibre-gl'
-import type { Coord, RouteSegment, AlternativeRoute } from '../types'
-import { useT } from '../i18n/context'
+import { useEffect, useMemo, useRef } from 'react'
+import maplibregl, { Marker } from 'maplibre-gl'
+import 'maplibre-gl/dist/maplibre-gl.css'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+import type {
+  AlternativeRoute,
+  Coord,
+  LayerSettings,
+  MapHotspot,
+  RiderReport,
+  RouteSegment,
+} from '../types'
 
-const VIETNAM_CENTER: [number, number] = [106.5, 16.0]
-const VIETNAM_ZOOM = 4.6
+const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 
-const SEGMENT_COLORS: Record<string, string> = {
-  low: '#10b981', moderate: '#f59e0b', high: '#f97316', severe: '#dc2626',
+const DEFAULT_LAYERS: LayerSettings = {
+  routeSegments: true,
+  alternatives: true,
+  segmentNumbers: true,
+  hotspots: true,
+  reports: true,
 }
 
-const TIER_COLORS: Record<number, string> = { 1: '#dc2626', 2: '#f59e0b' }
+const SEGMENT_COLORS: Record<string, string> = {
+  low: '#10b981',
+  moderate: '#f59e0b',
+  high: '#f97316',
+  severe: '#dc2626',
+}
 
-interface PilotCity {
-  id: string
-  name_vi: string
-  name_en: string
-  center: { lat: number; lng: number }
-  radius_km: number
-  tier: number
-  coastal: boolean
+const PASSABILITY_LABEL: Record<string, string> = {
+  safe: 'Safe',
+  slow_pass: 'Pass slowly',
+  avoid_for_motorbikes: 'Avoid for motorbikes',
+  impassable: 'Impassable',
+  unknown: 'Unknown',
 }
 
 interface Props {
-  from?: Coord | null
-  to?: Coord | null
+  from: Coord | null
+  to: Coord | null
   segments?: RouteSegment[]
-  /** Rejected/alternative routes — drawn dimmed UNDER the chosen route. */
   alternatives?: AlternativeRoute[]
-  onMapTap?: (coord: Coord) => void
-  tapMode?: 'from' | 'to' | null
-  onCityClick?: (city: PilotCity) => void
+  hotspots?: MapHotspot[]
+  reports?: RiderReport[]
+  layers?: LayerSettings
+  onMapTap: (coord: Coord) => void
+  tapMode: 'from' | 'to' | null
+}
+
+function scoreOf(seg: RouteSegment): number {
+  const value =
+    typeof seg.risk_score === 'number'
+      ? seg.risk_score
+      : typeof seg.flood_prob === 'number'
+        ? seg.flood_prob
+        : 0
+
+  return Math.max(0, Math.min(1, value))
+}
+
+function coordsForSegment(seg: RouteSegment): Coord[] {
+  if (seg.points && seg.points.length >= 2) return seg.points
+  return [seg.start, seg.end]
+}
+
+function makePointMarker(label: string, color: string): HTMLElement {
+  const el = document.createElement('div')
+  el.textContent = label
+
+  el.style.cssText = `
+    width: 32px;
+    height: 32px;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: ${color};
+    color: white;
+    font-size: 14px;
+    font-weight: 900;
+    border: 3px solid white;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+  `
+
+  return el
+}
+
+function makeSmallMarker(label: string, color: string): HTMLElement {
+  const el = document.createElement('div')
+  el.textContent = label
+
+  el.style.cssText = `
+    min-width: 22px;
+    height: 22px;
+    padding: 0 5px;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: ${color};
+    color: white;
+    font-size: 11px;
+    font-weight: 900;
+    border: 2px solid white;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+  `
+
+  return el
+}
+
+function popupHtml(title: string, rows: [string, string][]): string {
+  const rowHtml = rows
+    .map(
+      ([k, v]) => `
+      <div style="display:flex;justify-content:space-between;gap:16px;margin-top:4px;">
+        <span style="color:#64748b;">${k}</span>
+        <b style="color:#0f172a;">${v}</b>
+      </div>
+    `
+    )
+    .join('')
+
+  return `
+    <div style="font-family:Inter,system-ui,sans-serif;min-width:220px;">
+      <div style="font-size:14px;font-weight:900;color:#0f172a;margin-bottom:6px;">${title}</div>
+      ${rowHtml}
+    </div>
+  `
 }
 
 export function MapView({
-  from, to, segments, alternatives, onMapTap, tapMode, onCityClick,
+  from,
+  to,
+  segments = [],
+  alternatives = [],
+  hotspots = [],
+  reports = [],
+  layers = DEFAULT_LAYERS,
+  onMapTap,
+  tapMode,
 }: Props) {
-  const { t, lang } = useT()
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const fromMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const toMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const cityMarkersRef = useRef<maplibregl.Marker[]>([])
-  const segmentMarkersRef = useRef<any[]>([])
-  const [pilotCities, setPilotCities] = useState<PilotCity[]>([])
 
-  useEffect(() => {
-    fetch(`${API_BASE}/coverage`)
-      .then((r) => r.json())
-      .then((data) => setPilotCities(data.pilot_cities ?? []))
-      .catch(() => {})
-  }, [])
+  const pointMarkersRef = useRef<Marker[]>([])
+  const segmentMarkersRef = useRef<Marker[]>([])
+  const evidenceMarkersRef = useRef<Marker[]>([])
+  const clickHandlerAttachedRef = useRef(false)
+
+  const activeLayers = useMemo(() => ({ ...DEFAULT_LAYERS, ...layers }), [layers])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: 'https://tiles.openfreemap.org/styles/liberty',
-      center: VIETNAM_CENTER,
-      zoom: VIETNAM_ZOOM,
-      maxZoom: 18,
-      minZoom: 4,
+      style: MAP_STYLE,
+      center: [106.7009, 10.7769],
+      zoom: 11,
+      attributionControl: { compact: true },
     })
+
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right')
+    map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), 'top-right')
+
     mapRef.current = map
 
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
-    map.addControl(
-      new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-      }),
-      'top-right'
-    )
-
-    map.on('load', () => {
-      // Alternatives source/layer — added FIRST so they render under the chosen route
-      map.addSource('route-alts', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-      map.addLayer({
-        id: 'route-alts-line', type: 'line', source: 'route-alts',
-        paint: {
-          'line-color': '#9ca3af',
-          'line-width': 4,
-          'line-opacity': 0.55,
-          'line-dasharray': [2, 2],
-        },
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-      })
-
-      // Chosen route — added AFTER so it renders on top
-      map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-      map.addLayer({
-        id: 'route-line', type: 'line', source: 'route',
-        paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 0.9 },
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-      })
-
-      map.addSource('coverage', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-      map.addLayer(
-        {
-          id: 'coverage-fill', type: 'circle', source: 'coverage',
-          paint: {
-            'circle-radius': ['get', 'radius_px'],
-            'circle-color': ['get', 'color'],
-            'circle-opacity': 0.10,
-            'circle-stroke-color': ['get', 'color'],
-            'circle-stroke-width': 1.5,
-            'circle-stroke-opacity': 0.5,
-          },
-        },
-        'route-alts-line'
-      )
-    })
-
     return () => {
+      pointMarkersRef.current.forEach((m) => m.remove())
+      segmentMarkersRef.current.forEach((m) => m.remove())
+      evidenceMarkersRef.current.forEach((m) => m.remove())
       map.remove()
       mapRef.current = null
     }
   }, [])
 
-  // Coverage circles + city pin markers
   useEffect(() => {
     const map = mapRef.current
-    if (!map || pilotCities.length === 0) return
+    if (!map) return
 
-    const renderCoverage = () => {
-      const src = map.getSource('coverage') as maplibregl.GeoJSONSource | undefined
-      if (!src) return
-      const zoom = map.getZoom()
-      const features = pilotCities.map((c) => {
-        const pxPerKm =
-          (Math.pow(2, zoom) * 256) /
-          (40075 * Math.cos((c.center.lat * Math.PI) / 180))
-        const radius_px = c.radius_km * pxPerKm
-        return {
-          type: 'Feature' as const,
-          properties: {
-            id: c.id,
-            color: TIER_COLORS[c.tier] || '#6b7280',
-            radius_px: Math.max(8, Math.min(120, radius_px)),
-          },
-          geometry: { type: 'Point' as const, coordinates: [c.center.lng, c.center.lat] },
-        }
-      })
-      src.setData({ type: 'FeatureCollection', features })
-    }
-    if (map.isStyleLoaded()) renderCoverage()
-    else map.once('load', renderCoverage)
-    map.on('zoom', renderCoverage)
-
-    cityMarkersRef.current.forEach((m) => m.remove())
-    cityMarkersRef.current = []
-    for (const city of pilotCities) {
-      const el = document.createElement('div')
-      const isTier1 = city.tier === 1
-      el.className = 'city-marker'
-      el.style.cssText = `
-        width: ${isTier1 ? 14 : 10}px;
-        height: ${isTier1 ? 14 : 10}px;
-        border-radius: 50%;
-        background: ${TIER_COLORS[city.tier]};
-        border: 2px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        cursor: pointer;
-      `
-
-      if (isTier1) {
-        const ring = document.createElement('div')
-        ring.style.cssText = `
-          position: absolute;
-          inset: -6px;
-          border-radius: 50%;
-          background: ${TIER_COLORS[city.tier]};
-          opacity: 0.4;
-          animation: city-pulse 2s infinite;
-        `
-        el.style.position = 'relative'
-        el.appendChild(ring)
-      }
-
-      el.title = lang === 'vi' ? city.name_vi : city.name_en
-
-      el.addEventListener('click', (e) => {
-        e.stopPropagation()
-        if (onCityClick) onCityClick(city)
-        else {
-          map.flyTo({ center: [city.center.lng, city.center.lat], zoom: 11, duration: 1500 })
-        }
-      })
-
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([city.center.lng, city.center.lat])
-        .addTo(map)
-      cityMarkersRef.current.push(marker)
-    }
-
-    return () => {
-      map.off('zoom', renderCoverage)
-    }
-  }, [pilotCities, lang, onCityClick])
-
-  // Tap handler
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !onMapTap || !tapMode) return
     const handler = (e: maplibregl.MapMouseEvent) => {
+      if (!tapMode) return
       onMapTap({ lat: e.lngLat.lat, lng: e.lngLat.lng })
     }
+
     map.on('click', handler)
-    map.getCanvas().style.cursor = 'crosshair'
+
     return () => {
       map.off('click', handler)
-      map.getCanvas().style.cursor = ''
     }
   }, [onMapTap, tapMode])
 
-  useEffect(() => {
+  function ensureRouteLayers() {
     const map = mapRef.current
-    if (!map) return
-    if (fromMarkerRef.current) fromMarkerRef.current.remove()
-    if (from) {
-      fromMarkerRef.current = new maplibregl.Marker({ color: '#0ea5e9' })
-        .setLngLat([from.lng, from.lat]).addTo(map)
+    if (!map || !map.isStyleLoaded()) return false
+
+    if (!map.getSource('fw-alternatives')) {
+      map.addSource('fw-alternatives', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: [],
+        },
+      })
     }
-  }, [from])
+
+    if (!map.getLayer('fw-alternatives-line')) {
+      map.addLayer({
+        id: 'fw-alternatives-line',
+        type: 'line',
+        source: 'fw-alternatives',
+        paint: {
+          'line-color': '#64748b',
+          'line-width': 4,
+          'line-opacity': 0.45,
+          'line-dasharray': [2, 2],
+        },
+        layout: {
+          visibility: activeLayers.alternatives ? 'visible' : 'none',
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+      })
+    }
+
+    if (!map.getSource('fw-route-segments')) {
+      map.addSource('fw-route-segments', {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: [],
+        },
+      })
+    }
+
+    if (!map.getLayer('fw-route-segments-line')) {
+      map.addLayer({
+        id: 'fw-route-segments-line',
+        type: 'line',
+        source: 'fw-route-segments',
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 7,
+          'line-opacity': 0.95,
+        },
+        layout: {
+          visibility: activeLayers.routeSegments ? 'visible' : 'none',
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+      })
+    }
+
+    if (!clickHandlerAttachedRef.current) {
+      map.on('click', 'fw-route-segments-line', (e: any) => {
+        const feature = e.features?.[0]
+        const p = feature?.properties
+
+        if (!p) return
+
+        new maplibregl.Popup({ closeButton: true })
+          .setLngLat(e.lngLat)
+          .setHTML(
+            popupHtml(`Segment ${p.index}`, [
+              ['Risk', `${p.riskPct}%`],
+              ['Passability', p.passability],
+              ['Rain', p.rain],
+              ['Tide', p.tide],
+              ['Hotspot', p.hotspot],
+              ['Drainage risk', p.drainage],
+              ['Reports', p.reports],
+            ])
+          )
+          .addTo(map)
+      })
+
+      map.on('mouseenter', 'fw-route-segments-line', () => {
+        map.getCanvas().style.cursor = 'pointer'
+      })
+
+      map.on('mouseleave', 'fw-route-segments-line', () => {
+        map.getCanvas().style.cursor = ''
+      })
+
+      clickHandlerAttachedRef.current = true
+    }
+
+    return true
+  }
 
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    if (toMarkerRef.current) toMarkerRef.current.remove()
-    if (to) {
-      toMarkerRef.current = new maplibregl.Marker({ color: '#dc2626' })
-        .setLngLat([to.lng, to.lat]).addTo(map)
-    }
-  }, [to])
 
-  // Chosen route segments — drawn on top
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    const apply = () => {
-      const src = map.getSource('route') as maplibregl.GeoJSONSource | undefined
-      if (!src) return
-      const features = (segments ?? []).map((s) => {
-        const coords =
-          s.points && s.points.length >= 2
-            ? s.points.map((p) => [p.lng, p.lat])
-            : [
-                [s.start.lng, s.start.lat],
-                [s.end.lng, s.end.lat],
-              ]
+    const update = () => {
+      if (!ensureRouteLayers()) return
+
+      const segmentFeatures = segments.map((seg, index) => {
+        const coords = coordsForSegment(seg)
+        const s = scoreOf(seg)
+        const e = seg.evidence
+
         return {
-          type: 'Feature' as const,
-          properties: { color: SEGMENT_COLORS[s.risk_level] || '#6b7280' },
+          type: 'Feature',
+          properties: {
+            index: String(index + 1),
+            color: SEGMENT_COLORS[seg.risk_level] || '#10b981',
+            riskPct: Math.round(s * 100),
+            passability: PASSABILITY_LABEL[seg.passability] || seg.passability,
+            rain: `${(e?.rainfall_mm ?? 0).toFixed(1)}mm`,
+            tide:
+              e?.tide_level_m === null || e?.tide_level_m === undefined
+                ? 'n/a'
+                : `${e.tide_level_m.toFixed(2)}m`,
+            hotspot: `${Math.round((e?.hotspot_proximity ?? 0) * 100)}%`,
+            drainage:
+              e?.drainage_score === null || e?.drainage_score === undefined
+                ? 'n/a'
+                : `${Math.round((1 - e.drainage_score) * 100)}%`,
+            reports: String(e?.report_count ?? 0),
+          },
           geometry: {
-            type: 'LineString' as const,
-            coordinates: coords,
+            type: 'LineString',
+            coordinates: coords.map((c) => [c.lng, c.lat]),
           },
         }
       })
-      src.setData({ type: 'FeatureCollection', features })
+
+      const altFeatures = alternatives.map((alt, index) => ({
+        type: 'Feature',
+        properties: {
+          index: String(index + 1),
+          risk: alt.overall_risk,
+        },
+        geometry: {
+          type: 'LineString',
+          coordinates: alt.points.map((c) => [c.lng, c.lat]),
+        },
+      }))
+
+      const segmentSource = map.getSource('fw-route-segments') as maplibregl.GeoJSONSource
+      const altSource = map.getSource('fw-alternatives') as maplibregl.GeoJSONSource
+
+      segmentSource?.setData({
+        type: 'FeatureCollection',
+        features: segmentFeatures,
+      } as any)
+
+      altSource?.setData({
+        type: 'FeatureCollection',
+        features: altFeatures,
+      } as any)
     }
-    if (map.isStyleLoaded()) apply()
-    else map.once('load', apply)
-  }, [segments])
 
+    if (map.isStyleLoaded()) update()
+    else map.once('load', update)
+  }, [segments, alternatives, activeLayers])
 
-  // Segment number markers — makes the 6 scored chunks visible on the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (!map.isStyleLoaded()) return
+
+    if (map.getLayer('fw-route-segments-line')) {
+      map.setLayoutProperty(
+        'fw-route-segments-line',
+        'visibility',
+        activeLayers.routeSegments ? 'visible' : 'none'
+      )
+    }
+
+    if (map.getLayer('fw-alternatives-line')) {
+      map.setLayoutProperty(
+        'fw-alternatives-line',
+        'visibility',
+        activeLayers.alternatives ? 'visible' : 'none'
+      )
+    }
+  }, [activeLayers])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    pointMarkersRef.current.forEach((m) => m.remove())
+    pointMarkersRef.current = []
+
+    if (from) {
+      pointMarkersRef.current.push(
+        new maplibregl.Marker({
+          element: makePointMarker('A', '#0ea5e9'),
+          anchor: 'center',
+        })
+          .setLngLat([from.lng, from.lat])
+          .addTo(map)
+      )
+    }
+
+    if (to) {
+      pointMarkersRef.current.push(
+        new maplibregl.Marker({
+          element: makePointMarker('B', '#ef4444'),
+          anchor: 'center',
+        })
+          .setLngLat([to.lng, to.lat])
+          .addTo(map)
+      )
+    }
+  }, [from, to])
+
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -276,138 +416,130 @@ export function MapView({
     segmentMarkersRef.current.forEach((m) => m.remove())
     segmentMarkersRef.current = []
 
-    const list = segments ?? []
+    if (!activeLayers.segmentNumbers) return
 
-    for (let i = 0; i < list.length; i += 1) {
-      const s = list[i]
-      const pts = s.points && s.points.length >= 2 ? s.points : [s.start, s.end]
+    segments.forEach((seg, index) => {
+      const pts = coordsForSegment(seg)
       const mid = pts[Math.floor(pts.length / 2)]
+      if (!mid) return
 
-      if (!mid) continue
-
-      const score =
-        typeof s.risk_score === 'number'
-          ? s.risk_score
-          : typeof s.flood_prob === 'number'
-            ? s.flood_prob
-            : 0
-
-      const color =
-        score >= 0.8
-          ? '#dc2626'
-          : score >= 0.55
-            ? '#f97316'
-            : score >= 0.25
-              ? '#f59e0b'
-              : SEGMENT_COLORS[s.risk_level] || '#10b981'
-
-      const el = document.createElement('div')
-      el.textContent = String(i + 1)
-      el.title = `Segment ${i + 1}: ${Math.round(score * 100)}% ${s.risk_level}`
-
-      el.style.cssText = `
-        width: 22px;
-        height: 22px;
-        border-radius: 9999px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: ${color};
-        color: white;
-        font-size: 12px;
-        font-weight: 800;
-        border: 2px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-        pointer-events: none;
-      `
-
-      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      const marker = new maplibregl.Marker({
+        element: makeSmallMarker(String(index + 1), SEGMENT_COLORS[seg.risk_level] || '#10b981'),
+        anchor: 'center',
+      })
         .setLngLat([mid.lng, mid.lat])
         .addTo(map)
 
       segmentMarkersRef.current.push(marker)
-    }
+    })
+  }, [segments, activeLayers.segmentNumbers])
 
-    return () => {
-      segmentMarkersRef.current.forEach((m) => m.remove())
-      segmentMarkersRef.current = []
-    }
-  }, [segments])
-
-  // Alternatives — drawn UNDER, dimmed dashed
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    const apply = () => {
-      const src = map.getSource('route-alts') as maplibregl.GeoJSONSource | undefined
-      if (!src) return
-      const features = (alternatives ?? [])
-        .filter((a) => a.points && a.points.length >= 2)
-        .map((a) => ({
-          type: 'Feature' as const,
-          properties: { is_fastest: a.is_fastest },
-          geometry: {
-            type: 'LineString' as const,
-            coordinates: a.points.map((p) => [p.lng, p.lat]),
-          },
-        }))
-      src.setData({ type: 'FeatureCollection', features })
-    }
-    if (map.isStyleLoaded()) apply()
-    else map.once('load', apply)
-  }, [alternatives])
-
-
-  // Auto zoom to a single picked point.
-  // This restores the old behavior: after choosing FROM or TO, the map flies into that place.
-  // When both points or route geometry exist, the Fit Bounds effect below takes over.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
 
-    const hasRouteGeometry =
-      Boolean(segments && segments.length > 0) ||
-      Boolean(alternatives && alternatives.length > 0)
+    evidenceMarkersRef.current.forEach((m) => m.remove())
+    evidenceMarkersRef.current = []
 
-    if (hasRouteGeometry) return
+    if (activeLayers.hotspots) {
+      hotspots.forEach((h) => {
+        const marker = new maplibregl.Marker({
+          element: makeSmallMarker('H', '#eab308'),
+          anchor: 'center',
+        })
+          .setLngLat([h.lng, h.lat])
+          .setPopup(
+            new maplibregl.Popup().setHTML(
+              popupHtml(h.name, [
+                ['Type', 'Historical hotspot'],
+                ['Frequency', `${Math.round((h.historical_freq ?? 0) * 100)}%`],
+                ['Source', h.source || 'curated'],
+              ])
+            )
+          )
+          .addTo(map)
 
-    const onlyPoint = from && !to ? from : to && !from ? to : null
-    if (!onlyPoint) return
+        evidenceMarkersRef.current.push(marker)
+      })
+    }
 
-    map.flyTo({
-      center: [onlyPoint.lng, onlyPoint.lat],
-      zoom: Math.max(map.getZoom(), 14),
+    if (activeLayers.reports) {
+      reports.forEach((r) => {
+        const color =
+          r.passability === 'impassable'
+            ? '#dc2626'
+            : r.passability === 'avoid_for_motorbikes'
+              ? '#f97316'
+              : r.passability === 'slow_pass'
+                ? '#f59e0b'
+                : '#0ea5e9'
+
+        const marker = new maplibregl.Marker({
+          element: makeSmallMarker('R', color),
+          anchor: 'center',
+        })
+          .setLngLat([r.lng, r.lat])
+          .setPopup(
+            new maplibregl.Popup().setHTML(
+              popupHtml(`Rider report ${r.id}`, [
+                ['Passability', PASSABILITY_LABEL[r.passability] || r.passability],
+                ['Confidence', `${Math.round(r.confidence * 100)}%`],
+                ['Photo', r.photo_confirmed ? 'confirmed' : 'not confirmed'],
+              ])
+            )
+          )
+          .addTo(map)
+
+        evidenceMarkersRef.current.push(marker)
+      })
+    }
+  }, [hotspots, reports, activeLayers.hotspots, activeLayers.reports])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const coords: Coord[] = []
+
+    segments.forEach((s) => coords.push(...coordsForSegment(s)))
+    alternatives.forEach((a) => coords.push(...a.points))
+
+    if (coords.length === 0) {
+      if (from && to) coords.push(from, to)
+      else if (from) coords.push(from)
+      else if (to) coords.push(to)
+    }
+
+    if (coords.length === 0) return
+
+    if (coords.length === 1) {
+      map.flyTo({
+        center: [coords[0].lng, coords[0].lat],
+        zoom: Math.max(map.getZoom(), 14),
+        duration: 900,
+        essential: true,
+      })
+      return
+    }
+
+    const bounds = new maplibregl.LngLatBounds()
+
+    coords.forEach((c) => bounds.extend([c.lng, c.lat]))
+
+    map.fitBounds(bounds, {
+      padding: { top: 90, right: 460, bottom: 80, left: 110 },
+      maxZoom: 15,
       duration: 900,
-      essential: true,
     })
   }, [from, to, segments, alternatives])
 
-  // Fit bounds: include chosen route AND any alternatives
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !from || !to) return
-    const bounds = new maplibregl.LngLatBounds()
-    bounds.extend([from.lng, from.lat])
-    bounds.extend([to.lng, to.lat])
-    if (segments) {
-      for (const s of segments) {
-        if (s.points) for (const p of s.points) bounds.extend([p.lng, p.lat])
-      }
-    }
-    if (alternatives) {
-      for (const a of alternatives) {
-        for (const p of a.points) bounds.extend([p.lng, p.lat])
-      }
-    }
-    map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 600 })
-  }, [from, to, segments, alternatives])
-
   return (
-    <div className="relative w-full h-full">
-      <div ref={containerRef} className="w-full h-full" />
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="absolute inset-0" />
+
       {tapMode && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-brand text-white px-3 py-1.5 rounded-full text-sm shadow-lg z-10">
-          {tapMode === 'from' ? t.tapMapToPickFrom : t.tapMapToPickTo}
+        <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-slate-900/90 px-4 py-2 text-sm font-bold text-white shadow-xl">
+          Click the map to pick {tapMode === 'from' ? 'FROM' : 'TO'}
         </div>
       )}
     </div>

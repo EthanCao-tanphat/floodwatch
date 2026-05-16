@@ -23,6 +23,7 @@ from models import (
 )
 from agents.forecast import forecast_segment
 from services.graphhopper import fetch_road_routes, sample_route_points
+from services.reports import report_evidence_for_segment
 
 
 Point = Tuple[float, float]  # (lat, lng)
@@ -71,6 +72,23 @@ def _confidence_rank(confidence: ConfidenceLevel) -> int:
 def _prob_from_point(point: ForecastPoint) -> float:
     return float(point.risk_score if point.risk_score is not None else point.probability)
 
+
+
+
+def _evidence_with_report_signal(
+    evidence: RiskEvidence,
+    report_summary: dict,
+) -> RiskEvidence:
+    payload = (
+        evidence.model_dump()
+        if hasattr(evidence, "model_dump")
+        else evidence.dict()
+    )
+
+    payload["report_count"] = int(report_summary.get("report_count", 0))
+    payload["photo_confirmed"] = bool(report_summary.get("photo_confirmed", False))
+
+    return RiskEvidence(**payload)
 
 def _fallback_forecast_point(reason: str) -> ForecastPoint:
     """Low-confidence fallback so the demo does not hard-crash on API/rate-limit errors."""
@@ -143,7 +161,22 @@ async def _score_route(
     best_confidence: ConfidenceLevel = "low"
 
     for (start, end, chunk), forecast_point in zip(chunks, forecast_points):
-        prob = _prob_from_point(forecast_point)
+        report_summary = report_evidence_for_segment(start, end)
+        evidence = _evidence_with_report_signal(forecast_point.evidence, report_summary)
+
+        # Rider reports increase risk only when they are close to this route segment.
+        prob = min(
+            1.0,
+            max(
+                0.0,
+                _prob_from_point(forecast_point)
+                + float(report_summary.get("risk_bonus", 0.0)),
+            ),
+        )
+
+        risk_level = _risk_for_prob(prob)
+        passability = _passability_for_prob(prob)
+
         max_prob = max(max_prob, prob)
 
         if _confidence_rank(forecast_point.confidence) > _confidence_rank(best_confidence):
@@ -156,10 +189,10 @@ async def _score_route(
                 points=[Coord(lat=p[0], lng=p[1]) for p in chunk],
                 flood_prob=round(prob, 3),
                 risk_score=round(prob, 3),
-                risk_level=forecast_point.risk_level,
-                passability=forecast_point.passability,
+                risk_level=risk_level,
+                passability=passability,
                 confidence=forecast_point.confidence,
-                evidence=forecast_point.evidence,
+                evidence=evidence,
             )
         )
 

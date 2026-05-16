@@ -104,3 +104,39 @@ export interface GeocodeResult {
   source: string
   importance?: number
 }
+
+
+export interface MapHotspot {
+  name: string
+  lat: number
+  lng: number
+  historical_freq: number
+  source: string
+  coord_note?: string | null
+}
+
+export interface RiderReport {
+  id: string
+  created_at: number
+  lat: number
+  lng: number
+  passability: Passability
+  confidence: number
+  photo_confirmed: boolean
+  source: string
+}
+
+export interface MapEvidenceResponse {
+  hotspots: MapHotspot[]
+  reports: RiderReport[]
+}
+
+export interface LayerSettings {
+  routeSegments: boolean
+  alternatives: boolean
+  segmentNumbers: boolean
+  hotspots: boolean
+  reports: boolean
+}
+
+export type LayerKey = keyof LayerSettings

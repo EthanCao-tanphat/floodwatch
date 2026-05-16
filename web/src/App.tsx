@@ -14,7 +14,7 @@ import { StatsPanel } from './components/StatsPanel'
 
 import { api } from './api/client'
 import { useT } from './i18n/context'
-import type { Coord, RouteResponse, StatusResponse } from './types'
+import type { Coord, LayerKey, LayerSettings, MapEvidenceResponse, RouteResponse, StatusResponse } from './types'
 
 const GlobeIntro = lazy(() =>
   import('./components/GlobeIntro').then((module) => ({
@@ -25,6 +25,14 @@ const GlobeIntro = lazy(() =>
 type Scene = 'landing' | 'dashboard'
 type NavId = 'map' | 'routes' | 'reports' | 'alerts' | 'layers' | 'settings'
 type Panel = null | 'routes' | 'reports' | 'alerts' | 'layers' | 'settings'
+
+const DEFAULT_LAYERS: LayerSettings = {
+  routeSegments: true,
+  alternatives: true,
+  segmentNumbers: true,
+  hotspots: true,
+  reports: true,
+}
 
 export default function App() {
   const { t } = useT()
@@ -39,6 +47,8 @@ export default function App() {
 
   const [result, setResult] = useState<RouteResponse | null>(null)
   const [status, setStatus] = useState<StatusResponse | null>(null)
+  const [mapEvidence, setMapEvidence] = useState<MapEvidenceResponse | null>(null)
+  const [layers, setLayers] = useState<LayerSettings>(DEFAULT_LAYERS)
 
   const [loading, setLoading] = useState(false)
   const [apiOk, setApiOk] = useState<boolean | null>(null)
@@ -49,6 +59,15 @@ export default function App() {
       setStatus(next)
     } catch {
       // Keep last known status; health check handles API online/offline.
+    }
+  }, [])
+
+  const refreshMapEvidence = useCallback(async () => {
+    try {
+      const next = await api.mapEvidence()
+      setMapEvidence(next)
+    } catch {
+      // Keep last known evidence if the API hiccups.
     }
   }, [])
 
@@ -67,16 +86,18 @@ export default function App() {
       })
 
     void refreshStatus()
+    void refreshMapEvidence()
 
     const id = window.setInterval(() => {
       void refreshStatus()
+      void refreshMapEvidence()
     }, 30000)
 
     return () => {
       alive = false
       window.clearInterval(id)
     }
-  }, [scene, refreshStatus])
+  }, [scene, refreshStatus, refreshMapEvidence])
 
   function handleContinue() {
     setScene('dashboard')
@@ -128,6 +149,13 @@ export default function App() {
     }
   }
 
+  function toggleLayer(key: LayerKey) {
+    setLayers((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }))
+  }
+
   const statsPanel = (
     <StatsPanel
       activeReports={status?.active_reports ?? 0}
@@ -174,6 +202,9 @@ export default function App() {
                 to={to}
                 segments={result?.segments}
                 alternatives={result?.alternatives}
+                hotspots={mapEvidence?.hotspots ?? []}
+                reports={mapEvidence?.reports ?? []}
+                layers={layers}
                 onMapTap={handleMapTap}
                 tapMode={tapMode}
               />
@@ -208,7 +239,10 @@ export default function App() {
                   {panel === 'reports' && (
                     <PhotoReport
                       onClose={() => setPanel(null)}
-                      onReported={() => void refreshStatus()}
+                      onReported={() => {
+                        void refreshStatus()
+                        void refreshMapEvidence()
+                      }}
                     />
                   )}
 
@@ -223,6 +257,8 @@ export default function App() {
                   {panel === 'layers' && (
                     <LayersPanel
                       status={status}
+                      layers={layers}
+                      onToggleLayer={toggleLayer}
                       onClose={() => setPanel(null)}
                     />
                   )}

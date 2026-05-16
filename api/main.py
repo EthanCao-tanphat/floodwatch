@@ -28,6 +28,7 @@ from config import (
 from services.coverage import resolve_coverage
 from services.geocode import geocode_address
 from services.openmeteo import fetch_rainfall, rainfall_in_window
+from services.reports import add_report, count_reports, list_reports
 from services.tides import get_tide_level
 
 
@@ -43,8 +44,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-ACTIVE_REPORTS: list[dict[str, Any]] = []
 
 
 def _check_in_vietnam(lat: float, lng: float) -> None:
@@ -94,7 +93,7 @@ async def status_endpoint():
         rain_now_mm = 0.0
 
     return {
-        "active_reports": len(ACTIVE_REPORTS),
+        "active_reports": count_reports(),
         "flood_hotspots": _count_hotspots("hcmc"),
         "rain_now_mm": round(float(rain_now_mm), 1),
         "tide_level_m": round(float(tide_level_m), 2),
@@ -122,6 +121,38 @@ async def geocode_endpoint(q: str, limit: int = 5):
         return await geocode_address(query, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Geocoding failed: {e}")
+
+
+
+@app.get("/map/evidence")
+async def map_evidence_endpoint():
+    """Return map-visible flood evidence: historical hotspots + live rider reports."""
+
+    path = Path(__file__).resolve().parent / "data" / "flood_points.json"
+    hotspots = []
+
+    try:
+        data = json.loads(path.read_text())
+        city = data.get("cities", {}).get("hcmc", {})
+
+        for item in city.get("hotspots", []):
+            hotspots.append(
+                {
+                    "name": item.get("name", "Flood hotspot"),
+                    "lat": float(item["lat"]),
+                    "lng": float(item["lng"]),
+                    "historical_freq": float(item.get("historical_freq", 0.5)),
+                    "source": item.get("source", "curated"),
+                    "coord_note": item.get("coord_note"),
+                }
+            )
+    except Exception:
+        hotspots = []
+
+    return {
+        "hotspots": hotspots,
+        "reports": list_reports(),
+    }
 
 @app.get("/coverage")
 async def coverage_info():

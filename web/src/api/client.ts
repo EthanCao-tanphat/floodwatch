@@ -3,6 +3,7 @@ import type {
   DepthReportResponse,
   ForecastResponse,
   GeocodeResult,
+  MapEvidenceResponse,
   RouteResponse,
   StatusResponse,
 } from '../types'
@@ -39,6 +40,8 @@ export const api = {
   health: async () => get<{ status: string; service: string; version: string }>('/'),
 
   status: async () => get<StatusResponse>('/status'),
+
+  mapEvidence: async () => get<MapEvidenceResponse>('/map/evidence'),
 
   geocode: async (q: string, limit = 5) =>
     get<GeocodeResult[]>(
