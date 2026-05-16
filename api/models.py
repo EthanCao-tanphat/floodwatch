@@ -1,6 +1,17 @@
 """Pydantic schemas. Mirror the API contract."""
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
+
+RiskLevel = Literal["low", "moderate", "high", "severe"]
+ConfidenceLevel = Literal["low", "medium", "high"]
+Passability = Literal[
+    "safe",
+    "slow_pass",
+    "avoid_for_motorbikes",
+    "impassable",
+    "unknown",
+]
+DepthClass = Literal["dry", "ankle", "knee", "impassable"]
 
 
 class Coord(BaseModel):
@@ -8,18 +19,31 @@ class Coord(BaseModel):
     lng: float = Field(..., ge=-180, le=180)
 
 
+class RiskEvidence(BaseModel):
+    rainfall_mm: float = 0.0
+    tide_level_m: Optional[float] = None
+    hotspot_proximity: float = 0.0
+    drainage_score: Optional[float] = None
+    report_count: int = 0
+    photo_confirmed: bool = False
+
+
 # ---------- /forecast/segment ----------
 class ForecastRequest(BaseModel):
     lat: float
     lng: float
-    horizon_min: int = 90  # forecast horizon in minutes (max 90)
+    horizon_min: int = 60  # MVP focuses on 30-60 min. 90 remains a stretch horizon.
 
 
 class ForecastPoint(BaseModel):
     minutes_ahead: int
-    probability: float  # 0..1
+    probability: float  # 0..1, kept for compatibility with current UI
+    risk_score: float  # 0..1, preferred name for passability scoring
     rainfall_mm: float
-    risk_level: str  # "low" | "moderate" | "high" | "severe"
+    risk_level: RiskLevel
+    passability: Passability
+    confidence: ConfidenceLevel
+    evidence: RiskEvidence
 
 
 class ForecastResponse(BaseModel):
@@ -45,14 +69,20 @@ class RouteSegment(BaseModel):
     end: Coord
     points: List[Coord] = []  # full polyline points for this segment (real road geometry)
     flood_prob: float
-    risk_level: str
+    risk_score: float
+    risk_level: RiskLevel
+    passability: Passability
+    confidence: ConfidenceLevel
+    evidence: RiskEvidence
 
 
 class RouteResponse(BaseModel):
     distance_km: float
     eta_min: int
     segments: List[RouteSegment]
-    overall_risk: str
+    overall_risk: RiskLevel
+    overall_passability: Passability
+    confidence: ConfidenceLevel
     recommendation: str  # natural language tip from the alert agent
 
 
@@ -64,7 +94,8 @@ class DepthReportRequest(BaseModel):
 
 
 class DepthReportResponse(BaseModel):
-    depth_class: str  # "dry" | "ankle" | "knee" | "impassable"
+    depth_class: DepthClass  # retained for compatibility; passability is preferred
+    passability: Passability
     confidence: float
     reasoning: str
     lat: float

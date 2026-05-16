@@ -1,13 +1,14 @@
 import { useRef, useState } from 'react'
 import { api, fileToBase64 } from '../api/client'
 import { useT } from '../i18n/context'
-import type { DepthClass } from '../types'
+import type { Passability } from '../types'
 
-const DEPTH_VISUAL: Record<DepthClass, { emoji: string; color: string }> = {
-  dry: { emoji: '✅', color: 'text-risk-low' },
-  ankle: { emoji: '💧', color: 'text-risk-moderate' },
-  knee: { emoji: '🌊', color: 'text-risk-high' },
-  impassable: { emoji: '⛔', color: 'text-risk-severe' },
+const PASSABILITY_VISUAL: Record<Passability, { marker: string; color: string }> = {
+  safe: { marker: 'OK', color: 'text-risk-low' },
+  slow_pass: { marker: 'SLOW', color: 'text-risk-moderate' },
+  avoid_for_motorbikes: { marker: 'AVOID', color: 'text-risk-high' },
+  impassable: { marker: 'STOP', color: 'text-risk-severe' },
+  unknown: { marker: '?', color: 'text-slate-500' },
 }
 
 interface Props {
@@ -15,7 +16,7 @@ interface Props {
 }
 
 interface Reading {
-  depth_class: DepthClass
+  passability: Passability
   confidence: number
   reasoning: string
 }
@@ -27,11 +28,12 @@ export function PhotoReport({ onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [reading, setReading] = useState<Reading | null>(null)
 
-  const depthLabel: Record<DepthClass, string> = {
-    dry: t.depthDry,
-    ankle: t.depthAnkle,
-    knee: t.depthKnee,
-    impassable: t.depthImpassable,
+  const passabilityLabel: Record<Passability, string> = {
+    safe: t.passabilitySafe,
+    slow_pass: t.passabilitySlowPass,
+    avoid_for_motorbikes: t.passabilityAvoid,
+    impassable: t.passabilityImpassable,
+    unknown: t.passabilityUnknown,
   }
 
   async function onFile(file: File) {
@@ -52,7 +54,7 @@ export function PhotoReport({ onClose }: Props) {
       const lng = pos?.coords.longitude ?? 106.7714
       const result = await api.reportDepth(base64, lat, lng)
       setReading({
-        depth_class: result.depth_class,
+        passability: result.passability,
         confidence: result.confidence,
         reasoning: result.reasoning,
       })
@@ -74,7 +76,7 @@ export function PhotoReport({ onClose }: Props) {
           onClick={onClose}
           className="text-slate-400 hover:text-slate-600 text-xl leading-none"
         >
-          ✕
+          x
         </button>
       </div>
 
@@ -109,8 +111,8 @@ export function PhotoReport({ onClose }: Props) {
 
       {reading && (
         <div className="space-y-2">
-          <div className={`text-2xl font-bold ${DEPTH_VISUAL[reading.depth_class].color}`}>
-            {DEPTH_VISUAL[reading.depth_class].emoji} {depthLabel[reading.depth_class]}
+          <div className={`text-2xl font-bold ${PASSABILITY_VISUAL[reading.passability].color}`}>
+            {PASSABILITY_VISUAL[reading.passability].marker} {passabilityLabel[reading.passability]}
           </div>
           <div className="text-xs text-slate-500">
             {t.photoConfidence}: {(reading.confidence * 100).toFixed(0)}%

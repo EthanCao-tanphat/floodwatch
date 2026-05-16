@@ -11,7 +11,7 @@ import json
 import math
 from pathlib import Path
 from typing import Dict, List, Optional
-from models import ForecastPoint, ForecastResponse
+from models import ConfidenceLevel, ForecastPoint, ForecastResponse, Passability, RiskEvidence, RiskLevel
 from services.openmeteo import fetch_rainfall, rainfall_in_window
 from services.tides import get_tide_level, tide_factor
 from services.coverage import resolve_coverage
@@ -46,7 +46,7 @@ def _nearest_hotspot_freq(lat: float, lng: float, hotspots: List[Dict]) -> float
     return weighted / total if total > 0 else 0.0
 
 
-def _risk_level(prob: float) -> str:
+def _risk_level(prob: float) -> RiskLevel:
     if prob < 0.25:
         return "low"
     if prob < 0.55:
@@ -54,6 +54,34 @@ def _risk_level(prob: float) -> str:
     if prob < 0.80:
         return "high"
     return "severe"
+
+
+def _passability(prob: float) -> Passability:
+    if prob < 0.25:
+        return "safe"
+    if prob < 0.55:
+        return "slow_pass"
+    if prob < 0.80:
+        return "avoid_for_motorbikes"
+    return "impassable"
+
+
+def _confidence(tier: int, rain: float, hist_freq: float, report_count: int = 0) -> ConfidenceLevel:
+    signals = 0
+    if tier == 1:
+        signals += 1
+    if rain >= 10:
+        signals += 1
+    if hist_freq >= 0.50:
+        signals += 1
+    if report_count > 0:
+        signals += 1
+
+    if signals >= 3:
+        return "high"
+    if signals >= 2:
+        return "medium"
+    return "low"
 
 
 def _flood_probability_tier1(
@@ -101,7 +129,7 @@ def _flood_probability_tier3(rainfall_mm_30min: float) -> float:
     return min(0.70, 1.0 / (1.0 + math.exp(-z)))
 
 
-async def forecast_segment(lat: float, lng: float, horizon_min: int = 90) -> ForecastResponse:
+async def forecast_segment(lat: float, lng: float, horizon_min: int = 60) -> ForecastResponse:
     """Run the appropriate tier's fusion model."""
     coverage = resolve_coverage(lat, lng)
     flood_data = _load_flood_data()
@@ -135,12 +163,25 @@ async def forecast_segment(lat: float, lng: float, horizon_min: int = 90) -> For
         else:
             prob = _flood_probability_tier3(rain)
 
+        rounded_prob = round(prob, 3)
+        evidence = RiskEvidence(
+            rainfall_mm=round(rain, 1),
+            tide_level_m=round(tide_now, 2),
+            hotspot_proximity=round(hist_freq, 3),
+            drainage_score=round(drainage_score, 3),
+            report_count=0,
+            photo_confirmed=False,
+        )
         points.append(
             ForecastPoint(
                 minutes_ahead=minutes,
-                probability=round(prob, 3),
+                probability=rounded_prob,
+                risk_score=rounded_prob,
                 rainfall_mm=round(rain, 1),
                 risk_level=_risk_level(prob),
+                passability=_passability(prob),
+                confidence=_confidence(coverage["tier"], rain, hist_freq),
+                evidence=evidence,
             )
         )
 
@@ -149,7 +190,7 @@ async def forecast_segment(lat: float, lng: float, horizon_min: int = 90) -> For
     if coverage["tier"] == 1:
         explanation = (
             f"{city} (Tier 1, full model). "
-            f"Tide {tide_now}m; {max_rain:.1f}mm rain in next 90min; "
+            f"Tide {tide_now}m; {max_rain:.1f}mm rain in next {horizon_min}min; "
             f"historical hotspot proximity {hist_freq:.0%}; "
             f"drainage score {drainage_score:.0%}."
         )
@@ -157,13 +198,13 @@ async def forecast_segment(lat: float, lng: float, horizon_min: int = 90) -> For
         tide_str = f"tide {tide_now}m; " if coverage["coastal"] else ""
         explanation = (
             f"{city} (Tier 2, rainfall + drainage). "
-            f"{tide_str}{max_rain:.1f}mm rain in next 90min; "
+            f"{tide_str}{max_rain:.1f}mm rain in next {horizon_min}min; "
             f"drainage score {drainage_score:.0%}."
         )
     else:
         explanation = (
             f"Outside pilot cities (Tier 3, rainfall warning only). "
-            f"{max_rain:.1f}mm rain forecast in next 90min."
+            f"{max_rain:.1f}mm rain forecast in next {horizon_min}min."
         )
 
     return ForecastResponse(

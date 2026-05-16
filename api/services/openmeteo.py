@@ -2,7 +2,7 @@
 
 Returns 15-minutely rainfall forecast for any HCMC coordinate.
 Interpolated from hourly for Vietnam (no native radar model here),
-but still usable for the 30/60/90-min flood signal.
+but still usable for the 30/60-min MVP flood signal.
 """
 from typing import List, Dict, Any
 import httpx

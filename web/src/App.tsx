@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { LandingScreen } from './components/LandingScreen'
 import { DashboardShell } from './components/DashboardShell'
@@ -12,6 +12,9 @@ import { useT } from './i18n/context'
 import type { Coord, RouteResponse } from './types'
 
 const LANDING_SEEN_KEY = 'floodwatch.landing.seen'
+const GlobeIntro = lazy(() =>
+  import('./components/GlobeIntro').then((module) => ({ default: module.GlobeIntro }))
+)
 
 type Scene = 'landing' | 'dashboard'
 type NavId = 'map' | 'routes' | 'reports' | 'alerts' | 'layers' | 'settings'
@@ -85,7 +88,9 @@ export default function App() {
     <AnimatePresence mode="wait">
       {scene === 'landing' && (
         <motion.div key="landing" exit={{ opacity: 0 }} transition={{ duration: 0.6 }}>
-          <LandingScreen onContinue={handleContinue} />
+          <Suspense fallback={<LandingScreen onContinue={handleContinue} />}>
+            <GlobeIntro onContinue={handleContinue} />
+          </Suspense>
         </motion.div>
       )}
 

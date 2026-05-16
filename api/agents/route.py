@@ -50,16 +50,11 @@ async def find_safe_route(
     for (start, end, chunk) in segment_chunks:
         mid_lat = (start[0] + end[0]) / 2
         mid_lng = (start[1] + end[1]) / 2
-        forecast = await forecast_segment(mid_lat, mid_lng, horizon_min=90)
-        # Use 60-min forecast as canonical
-        prob = next(
-            (p.probability for p in forecast.points if p.minutes_ahead == 60),
-            forecast.points[0].probability if forecast.points else 0.0,
-        )
-        risk = next(
-            (p.risk_level for p in forecast.points if p.minutes_ahead == 60),
-            "low",
-        )
+        forecast = await forecast_segment(mid_lat, mid_lng, horizon_min=60)
+        # Use 60-min forecast as canonical for the MVP passability decision.
+        point = next((p for p in forecast.points if p.minutes_ahead == 60), forecast.points[0])
+        prob = point.probability
+        risk = point.risk_level
         max_prob = max(max_prob, prob)
         segments.append(
             RouteSegment(
@@ -67,24 +62,50 @@ async def find_safe_route(
                 end=Coord(lat=end[0], lng=end[1]),
                 points=[Coord(lat=p[0], lng=p[1]) for p in chunk],
                 flood_prob=round(prob, 3),
+                risk_score=round(prob, 3),
                 risk_level=risk,
+                passability=point.passability,
+                confidence=point.confidence,
+                evidence=point.evidence,
             )
         )
 
     # Pick overall risk + recommendation
     if max_prob > 0.75:
-        overall, rec = "severe", "Strongly recommend delaying or finding alternate route. Heavy flooding likely."
+        overall, passability, confidence, rec = (
+            "severe",
+            "impassable",
+            "high",
+            "Strongly recommend delaying or finding an alternate route. At least one segment is likely unsafe for motorbikes.",
+        )
     elif max_prob > 0.5:
-        overall, rec = "high", "Route has flood-prone segments. Consider alternate."
+        overall, passability, confidence, rec = (
+            "high",
+            "avoid_for_motorbikes",
+            "medium",
+            "Route has flood-prone segments. Avoid the highlighted roads if a safer route is available.",
+        )
     elif max_prob > 0.25:
-        overall, rec = "moderate", "Mostly clear. Watch the highlighted segments."
+        overall, passability, confidence, rec = (
+            "moderate",
+            "slow_pass",
+            "medium",
+            "Mostly passable, but slow down near highlighted segments and watch for fresh reports.",
+        )
     else:
-        overall, rec = "low", "Route looks safe in the next 60-90 minutes."
+        overall, passability, confidence, rec = (
+            "low",
+            "safe",
+            "low",
+            "Route looks passable for motorbikes in the next 30-60 minutes.",
+        )
 
     return RouteResponse(
         distance_km=round(distance_km, 2),
         eta_min=eta_min,
         segments=segments,
         overall_risk=overall,
+        overall_passability=passability,
+        confidence=confidence,
         recommendation=rec,
     )

@@ -1,35 +1,61 @@
-"""Depth-classifier agent — Qwen-VL classifies a rider's photo into
-{dry, ankle, knee, impassable}. This is the hero AI feature for the demo:
-"snap a photo, AI tells you how deep, map updates for everyone in seconds."
+"""Photo report agent.
+
+Qwen-VL verifies motorbike passability from a rider's photo. The old
+``depth_class`` field is retained for UI compatibility, but the preferred
+output is passability rather than exact water depth.
 """
 from models import DepthReportResponse
 from services.dashscope import call_qwen_vl, parse_json_response
 
 
-DEPTH_PROMPT = """You are a flood depth classifier. Look at this photo of a Vietnamese street
-and classify the flood depth into exactly ONE of these categories:
+DEPTH_PROMPT = """You verify whether a Vietnamese street is passable for motorbikes.
+Do not estimate exact water depth. Classify the road into exactly ONE passability category:
 
-- "dry": no standing water, road is clear
-- "ankle": shallow water, up to ankle height (~10cm). Motorbikes can pass slowly.
-- "knee": water up to knee height (~30-50cm). Risky for motorbikes — small bikes will stall.
-- "impassable": water above knee, or visible strong current. Do not attempt.
+- "safe": no standing water or clearly normal motorbike travel
+- "slow_pass": shallow water or uncertain conditions; motorbikes may pass slowly
+- "avoid_for_motorbikes": likely stall or safety risk for many motorbikes
+- "impassable": do not attempt
+- "unknown": image is too dark, ambiguous, or lacks useful road evidence
 
 Use visual cues: water reflection, wheel/tire submergence on visible vehicles,
-people wading, water reaching shop fronts, etc.
+people wading, water reaching shop fronts, current, and whether similar motorbikes
+are passing safely.
 
 Respond ONLY with valid JSON, no markdown:
 {
-  "depth_class": "dry" | "ankle" | "knee" | "impassable",
+  "passability": "safe" | "slow_pass" | "avoid_for_motorbikes" | "impassable" | "unknown",
   "confidence": 0.0-1.0,
   "reasoning": "1-2 sentence explanation in English"
 }"""
 
 
+def _depth_from_passability(passability: str) -> str:
+    return {
+        "safe": "dry",
+        "slow_pass": "ankle",
+        "avoid_for_motorbikes": "knee",
+        "impassable": "impassable",
+        "unknown": "dry",
+    }.get(passability, "dry")
+
+
+def _passability_from_depth(depth_class: str) -> str:
+    return {
+        "dry": "safe",
+        "ankle": "slow_pass",
+        "knee": "avoid_for_motorbikes",
+        "impassable": "impassable",
+    }.get(depth_class, "unknown")
+
+
 async def classify_depth(image_base64: str, lat: float, lng: float) -> DepthReportResponse:
     raw = call_qwen_vl(DEPTH_PROMPT, image_base64)
     parsed = parse_json_response(raw)
+    passability = parsed.get("passability") or _passability_from_depth(parsed.get("depth_class", ""))
+
     return DepthReportResponse(
-        depth_class=parsed["depth_class"],
+        depth_class=_depth_from_passability(passability),
+        passability=passability,
         confidence=float(parsed.get("confidence", 0.7)),
         reasoning=parsed.get("reasoning", ""),
         lat=lat,
