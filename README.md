@@ -1,87 +1,51 @@
-# FloodWatch HCMC
+# Smart Manufacturing & IoT Simulation
 
-> Motorbike-passability forecasting for Ho Chi Minh City riders.
-> Built for the **Asian Hackathon for Green Future 2026** (Vingroup + VinUniversity).
+> Mo phong tuong tac cac du an san xuat thong minh — xem truc tiep tren trinh duyet.
 
-UDI Maps tells you the water has already arrived. **FloodWatch tells you when flood risk may hit YOUR route and whether a motorbike can still pass.**
+## Demo truc tuyen
 
-## What this is
-
-A web platform with three faces:
-- **Rider PWA** - free for individual motorbike riders, shows 30-60 minute passability risk on your route
-- **B2B API** - paid tier for delivery and ride-hail platforms (Grab, ShopeeFood, Ahamove, J&T) to score route risk before riders enter flooded roads
-- **Public dashboard** - flood-risk map for partnership with HCMC Urban Drainage Company
-
-MVP pilot: **Thu Duc / District 7**. Scale path: HCMC -> Hanoi -> Jakarta / Manila / Bangkok.
-
-Canonical MVP spec: [`docs/SPEC.md`](docs/SPEC.md).
-
-## Repo layout
+Sau khi deploy len GitHub Pages, doi tac co the truy cap tai:
 
 ```
-floodwatch/
-├── api/           FastAPI backend, deploys to Hugging Face Spaces
-├── web/           React PWA frontend, deploys to Vercel
-├── docs/          Architecture, proposal drafts, references
-└── README.md      You are here
+https://<username>.github.io/<repo-name>/
 ```
 
-## Quick start
+## Danh sach project
 
-Two terminal windows side by side.
+| Project | Mo ta | File |
+|---------|-------|------|
+| Day chuyen chiet rot nuoc | Mo phong SCADA 13 buoc san xuat tu nhua tai che, 6 CCP, thong so ky thuat | `chiet-rot.html` |
+| Robot hut bui thong minh | AI LiDAR navigation, ne vat can, tu dong lau + sac, dashboard realtime | `robot-hut-bui.html` |
+| Bao cao kha thi Robot $299 | Phan tich thi truong, BOM, doi thu, bang sang che, chien luoc GTM | `bao-cao-kha-thi.md` |
 
-### Terminal 1 — backend
-```bash
-cd api
-pip install -r requirements.txt
-cp .env.example .env
-# put your DASHSCOPE_API_KEY in .env
-python test_openmeteo.py   # smoke test, should print rainfall
-uvicorn main:app --reload --port 8000
+## Cong nghe su dung
+
+- HTML5 Canvas — mo phong realtime
+- Vanilla JavaScript — khong can framework
+- CSS3 Animations — hieu ung dong
+- Responsive Design — tuong thich mobile
+
+## Cau truc thu muc
+
+```
+/
+├── index.html            ← Trang chu (landing page)
+├── chiet-rot.html        ← Mo phong day chuyen chiet rot
+├── robot-hut-bui.html    ← Mo phong robot hut bui
+├── bao-cao-kha-thi.md    ← Bao cao phan tich kha thi
+└── README.md             ← File nay
 ```
 
-Open `http://localhost:8000/docs` for the interactive Swagger UI.
+## Huong dan deploy
 
-### Terminal 2 — frontend
-```bash
-cd web
-npm install
-cp .env.example .env.local
-# leave VITE_API_BASE_URL=http://localhost:8000 for local dev
-npm run dev
-```
+Xem chi tiet tai file `HUONG-DAN-DEPLOY.md`
 
-Open `http://localhost:5173`.
+**Nhanh nhat (2 phut):**
+1. Tao repo moi tren GitHub
+2. Upload toan bo file
+3. Settings → Pages → Branch: main → Save
+4. Doi 1-2 phut → truy cap link
 
-Frontend (`web/`) is open — whoever has cycles. Mobile-first, Vietnamese-first UI.
+## Lien he
 
-## Deployment
-
-Backend → Hugging Face Spaces (Docker SDK). See [`api/README.md`](api/README.md).
-Frontend → Vercel. Set root directory to `web/`. See [`web/README.md`](web/README.md).
-
-## Key technical decisions
-
-- **No LangGraph / CrewAI for MVP.** Four agents is small enough for plain `async def` + Pydantic. Faster to ship, easier to debug. Roadmap as scale-out.
-- **Fusion model = explainable scoring/logistic model.** Defensible to judges, interpretable, calibratable against UDI Maps historical data.
-- **Open-Meteo for rainfall.** Free, no API key, real coverage for Vietnam. VMHA radar is internal and not publicly accessible.
-- **Static JSON for hotspots / drainage.** Will migrate to Postgres post-MVP. For 5-day sprint, JSON files beat database setup.
-- **Qwen-VL verifies passability, not exact depth.** Photo reports support the model but do not become the source of truth.
-- **Two-repo deployment, one-repo development.** Monorepo here, two hosts in production (Vercel + HF). Same pattern as Healix.
-
-## Reading list (for the pitch)
-
-- [Scheiber et al. 2023, NHESS](https://nhess.copernicus.org/articles/23/2313/2023/) — open-access HCMC flood index methodology, our academic anchor
-- [Vietnamnet 2017 on UDI Maps](https://vietnamnet.vn/en/hcm-city-flood-updates-available-on-app-E179011.html) — the incumbent we differentiate against
-- [World Bank WPS7765](https://documents1.worldbank.org/curated/en/928051469466398905/pdf/WPS7765.pdf) — flood exposure + poverty in HCMC, for the social-impact framing
-- The brainstorm document, `docs/brainstorm-v3.md`
-
-## Deadlines
-
-| Date | Milestone |
-|---|---|
-| **17 May 2026, 23:59 GMT+7** | Proposal + intro video submission |
-| **2–28 June 2026** | Online training for Top 30 |
-| **2–5 July 2026** | 24-hour final at VinUniversity Hanoi |
-
-Submit 48h early: **target 15 May evening**.
+Du an nay duoc tao de trinh bay cho doi tac va nha dau tu.
