@@ -44,3 +44,4 @@ build/
 *.bak*
 api/.cache/
 .cache/
+web/tsconfig.tsbuildinfo
