@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { LandingScreen } from './LandingScreen'
 
 interface Props {
@@ -8,21 +12,22 @@ interface Props {
 
 type Pin = {
   id: string
-  label: string
   lat: number
   lng: number
   kind: 'primary' | 'secondary'
 }
 
-const EARTH_TEXTURE_URL = 'https://unpkg.com/three-globe@2.31.0/example/img/earth-night.jpg'
+const EARTH_TEXTURE_URL = '/earth-night.jpg'
 const GLOBE_RADIUS = 2.2
+const BORDER_RADIUS = GLOBE_RADIUS * 1.008
+const BORDER_OPACITY = 0.18
 const PINS: Pin[] = [
-  { id: 'vietnam', label: 'Vietnam', lat: 14.0583, lng: 108.2772, kind: 'primary' },
-  { id: 'jakarta', label: 'Jakarta', lat: -6.2088, lng: 106.8456, kind: 'secondary' },
-  { id: 'manila', label: 'Manila', lat: 14.5995, lng: 120.9842, kind: 'secondary' },
-  { id: 'bangkok', label: 'Bangkok', lat: 13.7563, lng: 100.5018, kind: 'secondary' },
-  { id: 'hanoi', label: 'Hanoi', lat: 21.0278, lng: 105.8342, kind: 'secondary' },
-  { id: 'hcmc', label: 'HCMC', lat: 10.8231, lng: 106.6297, kind: 'primary' },
+  { id: 'vietnam', lat: 14.0583, lng: 108.2772, kind: 'primary' },
+  { id: 'jakarta', lat: -6.2088, lng: 106.8456, kind: 'secondary' },
+  { id: 'manila', lat: 14.5995, lng: 120.9842, kind: 'secondary' },
+  { id: 'bangkok', lat: 13.7563, lng: 100.5018, kind: 'secondary' },
+  { id: 'hanoi', lat: 21.0278, lng: 105.8342, kind: 'secondary' },
+  { id: 'hcmc', lat: 10.8231, lng: 106.6297, kind: 'primary' },
 ]
 
 function latLngToVector3(lat: number, lng: number, radius: number) {
@@ -33,6 +38,86 @@ function latLngToVector3(lat: number, lng: number, radius: number) {
     radius * Math.cos(phi),
     radius * Math.sin(phi) * Math.sin(theta)
   )
+}
+
+function lonLatToVector3(lon: number, lat: number, radius: number) {
+  return latLngToVector3(lat, lon, radius)
+}
+
+function interpolateGreatCircle(start: THREE.Vector3, end: THREE.Vector3, segments = 5) {
+  const points: THREE.Vector3[] = []
+  const a = start.clone().normalize()
+  const b = end.clone().normalize()
+  const dot = THREE.MathUtils.clamp(a.dot(b), -1, 1)
+  const omega = Math.acos(dot)
+  const sinOmega = Math.sin(omega)
+
+  for (let i = 0; i <= segments; i += 1) {
+    const t = i / segments
+    let point: THREE.Vector3
+    if (sinOmega < 1e-5) {
+      point = a.clone().lerp(b, t).normalize()
+    } else {
+      const scaleA = Math.sin((1 - t) * omega) / sinOmega
+      const scaleB = Math.sin(t * omega) / sinOmega
+      point = a
+        .clone()
+        .multiplyScalar(scaleA)
+        .add(b.clone().multiplyScalar(scaleB))
+        .normalize()
+    }
+    point.multiplyScalar(start.length())
+    points.push(point)
+  }
+
+  return points
+}
+
+function pushRingSegments(
+  ring: number[][],
+  positions: number[],
+  radius: number,
+  curveSegments = 5
+) {
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    const [lon1, lat1] = ring[i]
+    const [lon2, lat2] = ring[i + 1]
+    if (Math.abs(lon2 - lon1) > 180) continue
+
+    const start = lonLatToVector3(lon1, lat1, radius)
+    const end = lonLatToVector3(lon2, lat2, radius)
+    const curve = interpolateGreatCircle(start, end, curveSegments)
+
+    for (let j = 0; j < curve.length - 1; j += 1) {
+      const a = curve[j]
+      const b = curve[j + 1]
+      positions.push(a.x, a.y, a.z, b.x, b.y, b.z)
+    }
+  }
+}
+
+function buildBorderPositions(geojson: any, radius: number) {
+  const positions: number[] = []
+  const features = Array.isArray(geojson?.features) ? geojson.features : []
+
+  for (const feature of features) {
+    const geometry = feature?.geometry
+    if (!geometry) continue
+
+    if (geometry.type === 'Polygon') {
+      for (const ring of geometry.coordinates as number[][][]) {
+        pushRingSegments(ring, positions, radius)
+      }
+    } else if (geometry.type === 'MultiPolygon') {
+      for (const polygon of geometry.coordinates as number[][][][]) {
+        for (const ring of polygon) {
+          pushRingSegments(ring, positions, radius)
+        }
+      }
+    }
+  }
+
+  return positions
 }
 
 function supportsWebGL() {
@@ -115,6 +200,27 @@ function createFallbackEarthTexture() {
   return texture
 }
 
+function createPulseTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+
+  const gradient = ctx.createRadialGradient(128, 128, 42, 128, 128, 118)
+  gradient.addColorStop(0, 'rgba(255, 77, 93, 0)')
+  gradient.addColorStop(0.54, 'rgba(255, 77, 93, 0)')
+  gradient.addColorStop(0.68, 'rgba(255, 110, 124, 0.84)')
+  gradient.addColorStop(0.84, 'rgba(255, 77, 93, 0.28)')
+  gradient.addColorStop(1, 'rgba(255, 77, 93, 0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 256, 256)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
 export function GlobeIntro({ onContinue }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [fallback, setFallback] = useState(false)
@@ -129,8 +235,11 @@ export function GlobeIntro({ onContinue }: Props) {
 
     let frame = 0
     let disposed = false
-    let userTouched = false
-    const labels: Array<{ pin: Pin; element: HTMLDivElement; object: THREE.Object3D }> = []
+    const isMobile = window.matchMedia('(max-width: 768px)').matches
+    const sphereSegments = isMobile ? 32 : 64
+    let clouds: THREE.Mesh | null = null
+    let cloudMaterial: THREE.ShaderMaterial | null = null
+    let borderMaterial: THREE.LineBasicMaterial | null = null
     const clickTargets: THREE.Object3D[] = []
 
     const scene = new THREE.Scene()
@@ -140,13 +249,36 @@ export function GlobeIntro({ onContinue }: Props) {
     camera.position.set(0, 0.15, 7.2)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2))
     renderer.setClearColor(0x050914, 1)
     container.appendChild(renderer.domElement)
+
+    const composer = new EffectComposer(renderer)
+    const renderPass = new RenderPass(scene, camera)
+    composer.addPass(renderPass)
+    let bloomPass: UnrealBloomPass | null = null
+    if (!isMobile) {
+      bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.34, 0.28, 0.96)
+      composer.addPass(bloomPass)
+    }
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableZoom = false
+    controls.enablePan = false
+    controls.rotateSpeed = 0.4
+    controls.dampingFactor = 0.05
+    controls.enableDamping = true
+    controls.autoRotate = true
+    controls.autoRotateSpeed = 0.65
+    controls.addEventListener('start', () => {
+      controls.autoRotate = false
+    })
 
     const raycaster = new THREE.Raycaster()
     const pointer = new THREE.Vector2()
     const globeGroup = new THREE.Group()
+    globeGroup.position.x = isMobile ? 0.7 : 1.56
+    globeGroup.position.y = isMobile ? -0.08 : -0.02
     globeGroup.rotation.y = Math.PI
     scene.add(globeGroup)
 
@@ -164,7 +296,10 @@ export function GlobeIntro({ onContinue }: Props) {
       roughness: 0.82,
       metalness: 0.04,
     })
-    const earth = new THREE.Mesh(new THREE.SphereGeometry(GLOBE_RADIUS, 64, 64), earthMaterial)
+    const earth = new THREE.Mesh(
+      new THREE.SphereGeometry(GLOBE_RADIUS, sphereSegments, sphereSegments),
+      earthMaterial
+    )
     globeGroup.add(earth)
     setLoaded(true)
 
@@ -181,8 +316,104 @@ export function GlobeIntro({ onContinue }: Props) {
       () => setLoaded(true)
     )
 
+    fetch('/sea-borders.geojson')
+      .then((response) => {
+        if (!response.ok) throw new Error(`Border fetch failed: ${response.status}`)
+        return response.json()
+      })
+      .then((geojson) => {
+        if (disposed) return
+        const positions = buildBorderPositions(geojson, BORDER_RADIUS)
+        if (!positions.length) return
+
+        const borderGeometry = new THREE.BufferGeometry()
+        borderGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+        borderMaterial = new THREE.LineBasicMaterial({
+          color: 0x5da9ff,
+          transparent: true,
+          opacity: 0,
+          depthTest: true,
+          depthWrite: false,
+        })
+        const borders = new THREE.LineSegments(borderGeometry, borderMaterial)
+        globeGroup.add(borders)
+      })
+      .catch(() => {
+        borderMaterial = null
+      })
+
+    cloudMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uOpacity: { value: isMobile ? 0.14 : 0.18 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform float uTime;
+        uniform float uOpacity;
+
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        float noise(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        float fbm(vec2 p) {
+          float v = 0.0;
+          float amp = 0.5;
+          for (int i = 0; i < 5; i++) {
+            v += amp * noise(p);
+            p *= 2.0;
+            amp *= 0.5;
+          }
+          return v;
+        }
+
+        float makeClouds(vec2 uv) {
+          float large = fbm(uv * 14.0);
+          float detail = fbm(uv * 68.0);
+          float cloud = large * detail;
+          return smoothstep(0.4, 0.57, cloud);
+        }
+
+        void main() {
+          vec2 cloudUv = vUv + vec2(uTime * 0.0075, 0.0);
+          float clouds = makeClouds(cloudUv);
+          vec3 cloudColor = vec3(0.85, 0.9, 1.0);
+          gl_FragColor = vec4(cloudColor, clouds * uOpacity);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+    clouds = new THREE.Mesh(
+      new THREE.SphereGeometry(GLOBE_RADIUS * 1.005, sphereSegments, sphereSegments),
+      cloudMaterial
+    )
+    clouds.rotation.y = 0.18
+    globeGroup.add(clouds)
+
     const atmosphere = new THREE.Mesh(
-      new THREE.SphereGeometry(GLOBE_RADIUS * 1.045, 64, 64),
+      new THREE.SphereGeometry(GLOBE_RADIUS * 1.045, sphereSegments, sphereSegments),
       new THREE.ShaderMaterial({
         vertexShader: `
           varying vec3 vNormal;
@@ -194,8 +425,8 @@ export function GlobeIntro({ onContinue }: Props) {
         fragmentShader: `
           varying vec3 vNormal;
           void main() {
-            float intensity = pow(0.72 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.2);
-            gl_FragColor = vec4(0.22, 0.78, 1.0, 1.0) * intensity;
+            float intensity = pow(0.78 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.5);
+            gl_FragColor = vec4(0.16, 0.62, 0.95, 0.82) * intensity;
           }
         `,
         blending: THREE.AdditiveBlending,
@@ -205,39 +436,56 @@ export function GlobeIntro({ onContinue }: Props) {
     )
     globeGroup.add(atmosphere)
 
-    const pinMaterialPrimary = new THREE.MeshBasicMaterial({ color: 0xff4d5d })
-    const pinMaterialSecondary = new THREE.MeshBasicMaterial({ color: 0x94a3b8 })
-    const ringMaterial = new THREE.MeshBasicMaterial({
+    const pinMaterialPrimary = new THREE.MeshStandardMaterial({
       color: 0xff4d5d,
-      transparent: true,
-      opacity: 0.34,
-      side: THREE.DoubleSide,
+      emissive: new THREE.Color('#ff415f'),
+      emissiveIntensity: 2.25,
+      roughness: 0.28,
+      metalness: 0.04,
     })
+    const pinMaterialSecondary = new THREE.MeshStandardMaterial({
+      color: 0x94a3b8,
+      emissive: new THREE.Color('#9fb0c8'),
+      emissiveIntensity: 0.12,
+      roughness: 0.4,
+      metalness: 0.04,
+    })
+    const pulseTexture = createPulseTexture()
+    const pulseSprites: Array<{ sprite: THREE.Sprite; phase: number }> = []
 
     for (const pin of PINS) {
       const pos = latLngToVector3(pin.lat, pin.lng, GLOBE_RADIUS + 0.04)
+      const anchor = new THREE.Group()
+      anchor.position.copy(pos)
+      globeGroup.add(anchor)
+
       const marker = new THREE.Mesh(
         new THREE.SphereGeometry(pin.kind === 'primary' ? 0.055 : 0.04, 18, 18),
         pin.kind === 'primary' ? pinMaterialPrimary : pinMaterialSecondary
       )
-      marker.position.copy(pos)
       marker.userData.pinId = pin.id
       marker.userData.primary = pin.kind === 'primary'
-      globeGroup.add(marker)
+      anchor.add(marker)
       clickTargets.push(marker)
 
-      if (pin.kind === 'primary') {
-        const ring = new THREE.Mesh(new THREE.RingGeometry(0.08, 0.14, 28), ringMaterial.clone())
-        ring.position.copy(pos.clone().multiplyScalar(1.006))
-        ring.lookAt(new THREE.Vector3(0, 0, 0))
-        globeGroup.add(ring)
+      if (pin.id === 'vietnam' && pulseTexture) {
+        for (const phase of [0, Math.PI * 0.55]) {
+          const pulse = new THREE.Sprite(
+            new THREE.SpriteMaterial({
+              map: pulseTexture,
+              color: 0xff5b6b,
+              transparent: true,
+              opacity: 0.5,
+              depthWrite: false,
+              blending: THREE.AdditiveBlending,
+            })
+          )
+          pulse.scale.setScalar(0.34)
+          pulse.position.set(0, 0, 0.01)
+          marker.add(pulse)
+          pulseSprites.push({ sprite: pulse, phase })
+        }
       }
-
-      const label = document.createElement('div')
-      label.className = pin.kind === 'primary' ? 'globe-label globe-label-primary' : 'globe-label'
-      label.textContent = pin.label
-      container.appendChild(label)
-      labels.push({ pin, element: label, object: marker })
     }
 
     const resize = () => {
@@ -246,38 +494,39 @@ export function GlobeIntro({ onContinue }: Props) {
       camera.aspect = width / Math.max(height, 1)
       camera.updateProjectionMatrix()
       renderer.setSize(width, height, false)
-    }
-
-    const projectLabels = () => {
-      const width = container.clientWidth
-      const height = container.clientHeight
-      for (const item of labels) {
-        const world = new THREE.Vector3()
-        item.object.getWorldPosition(world)
-        const normal = world.clone().normalize()
-        const cameraDirection = camera.position.clone().normalize()
-        const visible = normal.dot(cameraDirection) > -0.35
-        const projected = world.clone().project(camera)
-        item.element.style.opacity = visible ? '1' : '0'
-        item.element.style.transform = `translate3d(${(projected.x * 0.5 + 0.5) * width}px, ${(-projected.y * 0.5 + 0.5) * height}px, 0) translate(-50%, -50%)`
-      }
+      composer.setSize(width, height)
+      if (bloomPass) bloomPass.setSize(width, height)
     }
 
     const animate = () => {
       frame = requestAnimationFrame(animate)
-      if (!userTouched) globeGroup.rotation.y += 0.0024
+      controls.update()
+      if (clouds) clouds.rotation.y += 0.0008
+      const time = performance.now() * 0.0036
+      if (cloudMaterial) {
+        cloudMaterial.uniforms.uTime.value = time
+      }
+      if (borderMaterial && borderMaterial.opacity < BORDER_OPACITY) {
+        borderMaterial.opacity = Math.min(borderMaterial.opacity + 0.005, BORDER_OPACITY)
+      }
+      for (const { sprite, phase } of pulseSprites) {
+        const pulsePhase = (Math.sin(time + phase) + 1) / 2
+        sprite.scale.setScalar(0.26 + pulsePhase * 0.26)
+        const material = sprite.material as THREE.SpriteMaterial
+        material.opacity = 0.16 + (1 - pulsePhase) * 0.46
+      }
       for (const target of clickTargets) {
-        if (target.userData.primary) {
-          const pulse = 1 + Math.sin(performance.now() * 0.004) * 0.16
+        if (target.userData.pinId === 'vietnam') {
+          const pulse = 1 + Math.sin(time) * 0.18
           target.scale.setScalar(pulse)
+        } else if (target.userData.pinId === 'hcmc') {
+          target.scale.setScalar(1)
         }
       }
-      renderer.render(scene, camera)
-      projectLabels()
+      composer.render()
     }
 
     const handlePointer = (event: PointerEvent) => {
-      userTouched = true
       const rect = renderer.domElement.getBoundingClientRect()
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
@@ -286,23 +535,17 @@ export function GlobeIntro({ onContinue }: Props) {
       if (hit?.object.userData.primary) onContinue()
     }
 
-    const handleMove = () => {
-      userTouched = true
-    }
-
     resize()
     animate()
     window.addEventListener('resize', resize)
     renderer.domElement.addEventListener('pointerdown', handlePointer)
-    renderer.domElement.addEventListener('pointermove', handleMove, { passive: true })
 
     return () => {
       disposed = true
       cancelAnimationFrame(frame)
       window.removeEventListener('resize', resize)
       renderer.domElement.removeEventListener('pointerdown', handlePointer)
-      renderer.domElement.removeEventListener('pointermove', handleMove)
-      labels.forEach((label) => label.element.remove())
+      controls.dispose()
       scene.traverse((object) => {
         const mesh = object as THREE.Mesh
         mesh.geometry?.dispose()
@@ -310,6 +553,7 @@ export function GlobeIntro({ onContinue }: Props) {
         if (Array.isArray(material)) material.forEach((m) => m.dispose())
         else material?.dispose()
       })
+      composer.dispose()
       renderer.dispose()
       renderer.domElement.remove()
     }
@@ -318,33 +562,8 @@ export function GlobeIntro({ onContinue }: Props) {
   if (fallback) return <LandingScreen onContinue={onContinue} />
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-[#050914] text-white">
-      <style>{`
-        .globe-label {
-          position: absolute;
-          left: 0;
-          top: 0;
-          padding: 4px 8px;
-          border: 1px solid rgba(148, 163, 184, 0.28);
-          border-radius: 999px;
-          background: rgba(5, 9, 20, 0.62);
-          color: #cbd5e1;
-          font-size: 11px;
-          font-weight: 600;
-          letter-spacing: 0;
-          pointer-events: none;
-          transition: opacity 180ms ease;
-          will-change: transform, opacity;
-        }
-        .globe-label-primary {
-          border-color: rgba(248, 113, 113, 0.54);
-          background: rgba(127, 29, 29, 0.5);
-          color: #fecaca;
-          box-shadow: 0 0 24px rgba(248, 113, 113, 0.24);
-        }
-      `}</style>
-
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(14,165,233,0.16),transparent_36%),linear-gradient(180deg,#050914_0%,#07111f_55%,#020617_100%)]" />
+    <div className="fixed inset-0 z-50 overflow-hidden bg-[#030712] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_52%_44%,rgba(14,165,233,0.08),transparent_30%),linear-gradient(180deg,#030712_0%,#040816_55%,#02040d_100%)]" />
       <div
         ref={containerRef}
         className="absolute inset-0"
@@ -363,7 +582,7 @@ export function GlobeIntro({ onContinue }: Props) {
           Flood risk before it reaches your route.
         </h1>
         <p className="mt-4 text-sm sm:text-base leading-6 text-slate-300">
-          Click Vietnam to enter the pilot dashboard for motorbike passability forecasting.
+          Click a red pilot pin to enter the dashboard for motorbike passability forecasting.
         </p>
       </div>
 
@@ -376,7 +595,7 @@ export function GlobeIntro({ onContinue }: Props) {
       </button>
 
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-cyan-200/20 bg-slate-950/55 px-4 py-2 text-xs text-slate-300 backdrop-blur">
-        Vietnam and HCMC pins open the dashboard
+        Red pilot pins open the dashboard
       </div>
     </div>
   )
