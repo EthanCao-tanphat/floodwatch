@@ -23,7 +23,12 @@ import httpx
 
 
 GRAPHHOPPER_URL = "https://graphhopper.com/api/1/route"
-GRAPHHOPPER_TIMEOUT = 14.0
+GRAPHHOPPER_TIMEOUT = float(os.getenv("GRAPHHOPPER_TIMEOUT_SECONDS", "2.0"))
+ENABLE_VIA_FALLBACKS = os.getenv("FLOODWATCH_ROUTE_DEEP_ALTERNATIVES", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 
 Point = Tuple[float, float]  # (lat, lng)
@@ -314,8 +319,9 @@ async def fetch_road_routes(
     for route in normal_routes:
         _append_unique_route(routes, route, max_paths)
 
-    # 2. If GraphHopper only returns one route, create real via-point routes.
-    if len(routes) < max_paths:
+    # 2. Optional deeper search. This costs extra network round-trips and is
+    # disabled by default so mobile route checks stay under the 3s UX budget.
+    if ENABLE_VIA_FALLBACKS and len(routes) < max_paths:
         for via_lat, via_lng in _candidate_via_points(from_lat, from_lng, to_lat, to_lng):
             via_routes = await _request_graphhopper_routes(
                 [(from_lat, from_lng), (via_lat, via_lng), (to_lat, to_lng)],

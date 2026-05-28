@@ -36,6 +36,7 @@ from services.tides import get_tide_level
 
 Point = Tuple[float, float]  # (lat, lng)
 RouteForecastInputs = Tuple[Dict, Dict, float]
+UNAVAILABLE_ROUTE_FORECAST = "unavailable"
 ACTIVE_RAIN_MM = 5.0
 WARNING_RAIN_MM = 10.0
 TIDE_PRESSURE_M = 1.4
@@ -43,6 +44,7 @@ REROUTE_SCORE_DELTA = 0.05
 REROUTE_RISK_DELTA = 0.10
 ROUTE_SCORE_SEGMENTS = 4
 ROUTE_FORECAST_CONCURRENCY = 4
+ROUTE_FORECAST_INPUT_TIMEOUT_SECONDS = 1.8
 
 FALLBACK_SPEED_KMH = {
     "motorbike": 25,
@@ -407,7 +409,7 @@ async def _forecast_segment_midpoint(
     end: Point,
     forecast_cache: ForecastCache,
     semaphore: asyncio.Semaphore,
-    forecast_inputs: RouteForecastInputs | None,
+    forecast_inputs: RouteForecastInputs | str | None,
 ) -> List[ForecastPoint]:
     """Score one road segment using the forecast at its midpoint.
 
@@ -422,6 +424,9 @@ async def _forecast_segment_midpoint(
 
     if cached is not None:
         return await cached
+
+    if forecast_inputs == UNAVAILABLE_ROUTE_FORECAST:
+        return _fallback_forecast_points("route forecast unavailable within fast response budget")
 
     async def load() -> List[ForecastPoint]:
         try:
@@ -586,7 +591,7 @@ async def _score_route(
     n_segments: int = ROUTE_SCORE_SEGMENTS,
     forecast_cache: ForecastCache | None = None,
     semaphore: asyncio.Semaphore | None = None,
-    forecast_inputs: RouteForecastInputs | None = None,
+    forecast_inputs: RouteForecastInputs | str | None = None,
 ) -> Tuple[
     List[RouteSegment],
     float,
@@ -975,22 +980,28 @@ async def find_safe_route(
 ) -> RouteResponse:
     """Find safest/recommended route and return all selectable candidates."""
 
-    roads = await fetch_road_routes(
+    roads_task = asyncio.create_task(fetch_road_routes(
         from_.lat,
         from_.lng,
         to.lat,
         to.lng,
         max_paths=3,
         travel_mode=travel_mode,
-    )
+    ))
+    forecast_inputs_task = asyncio.create_task(_route_forecast_inputs(from_, to))
+
+    roads = await roads_task
     forecast_cache: ForecastCache = {}
     forecast_semaphore = asyncio.Semaphore(ROUTE_FORECAST_CONCURRENCY)
-    forecast_inputs: RouteForecastInputs | None = None
+    forecast_inputs: RouteForecastInputs | str | None = None
 
     try:
-        forecast_inputs = await _route_forecast_inputs(from_, to)
+        forecast_inputs = await asyncio.wait_for(
+            forecast_inputs_task,
+            timeout=ROUTE_FORECAST_INPUT_TIMEOUT_SECONDS,
+        )
     except Exception:
-        forecast_inputs = None
+        forecast_inputs = UNAVAILABLE_ROUTE_FORECAST
 
     # Fallback: straight-line route if GraphHopper is unavailable.
     if not roads:

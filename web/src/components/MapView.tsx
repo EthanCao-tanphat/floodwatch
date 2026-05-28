@@ -903,7 +903,7 @@ export function MapView({
       map.flyTo({
         center: [coords[0].lng, coords[0].lat],
         zoom: Math.max(map.getZoom(), 14),
-        duration: 200,
+        duration: 0,
         essential: true,
       })
       return
@@ -916,7 +916,7 @@ export function MapView({
     map.fitBounds(bounds, {
       padding: { top: 90, right: 460, bottom: 80, left: 110 },
       maxZoom: 15,
-      duration: 250,
+      duration: 0,
     })
   }, [segments, alternatives])
 

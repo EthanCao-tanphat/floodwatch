@@ -152,6 +152,7 @@ class RouteEvidenceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("agents.route.fetch_road_routes", new=AsyncMock(return_value=[ROAD])),
+            patch("agents.route._route_forecast_inputs", new=AsyncMock(return_value=None)),
             patch("agents.route.forecast_segment", new=AsyncMock(return_value=response)),
             patch("agents.route.report_evidence_for_segment", side_effect=no_report),
         ):
@@ -175,6 +176,7 @@ class RouteEvidenceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("agents.route.fetch_road_routes", new=AsyncMock(return_value=[ROAD])),
+            patch("agents.route._route_forecast_inputs", new=AsyncMock(return_value=None)),
             patch("agents.route.forecast_segment", new=AsyncMock(return_value=response)),
             patch("agents.route.report_evidence_for_segment", side_effect=no_report),
         ):
@@ -199,6 +201,7 @@ class RouteEvidenceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("agents.route.fetch_road_routes", new=AsyncMock(return_value=[ROAD])),
+            patch("agents.route._route_forecast_inputs", new=AsyncMock(return_value=None)),
             patch("agents.route.forecast_segment", new=AsyncMock(return_value=response)),
             patch("agents.route.report_evidence_for_segment", side_effect=report),
         ):
