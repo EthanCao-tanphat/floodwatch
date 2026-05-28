@@ -16,7 +16,7 @@ import { StatsPanel } from './components/StatsPanel'
 
 import { api } from './api/client'
 import { useT } from './i18n/context'
-import type { Coord, LayerKey, LayerSettings, MapEvidenceResponse, RouteCandidate, RouteResponse, StatusResponse } from './types'
+import type { Coord, LayerKey, LayerSettings, MapEvidenceResponse, RouteCandidate, RouteResponse, StatusResponse, TravelMode } from './types'
 
 const GlobeIntro = lazy(() =>
   import('./components/GlobeIntro').then((module) => ({
@@ -34,8 +34,8 @@ const DEFAULT_LAYERS: LayerSettings = {
   segmentNumbers: true,
   hotspots: true,
   reports: true,
+  weatherAlerts: true,
 }
-
 
 function responseFromRouteCandidate(
   base: RouteResponse,
@@ -49,8 +49,17 @@ function responseFromRouteCandidate(
     overall_risk: selected.overall_risk,
     overall_passability: selected.overall_passability,
     confidence: selected.confidence,
+    evidence_state: selected.evidence_state,
     recommendation: selected.recommendation,
     selected_route_id: selected.id,
+
+    timeline: selected.timeline ?? [],
+    future_peak_risk: selected.future_peak_risk,
+    future_peak_min: selected.future_peak_min,
+    future_risk_summary: selected.future_risk_summary,
+    route_score: selected.route_score,
+    travel_mode: selected.travel_mode,
+
     alternatives: (base.routes ?? [])
       .filter((r) => r.id !== selected.id)
       .map((r) => ({
@@ -75,6 +84,7 @@ export default function App() {
   const [from, setFrom] = useState<Coord | null>(null)
   const [to, setTo] = useState<Coord | null>(null)
   const [tapMode, setTapMode] = useState<'from' | 'to' | null>(null)
+  const [travelMode, setTravelMode] = useState<TravelMode>('motorbike')
 
   const [result, setResult] = useState<RouteResponse | null>(null)
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null)
@@ -169,7 +179,7 @@ export default function App() {
     setLoading(true)
 
     try {
-      const r = await api.route(from, to)
+      const r = await api.route(from, to, 0, travelMode)
       setResult(r)
       setSelectedRouteId(
         r.selected_route_id ??
@@ -217,7 +227,7 @@ export default function App() {
       {scene === 'landing' && (
         <motion.div
           key="landing"
-          className="h-screen w-screen overflow-hidden bg-slate-950"
+          className="app-screen bg-white"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -231,7 +241,7 @@ export default function App() {
       {scene === 'dashboard' && (
         <motion.div
           key="dashboard"
-          className="h-screen w-screen overflow-hidden bg-slate-950"
+          className="app-screen bg-slate-950"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -242,7 +252,7 @@ export default function App() {
             statsPanel={statsPanel}
             apiOk={apiOk}
           >
-            <div className="relative h-screen w-screen overflow-hidden">
+            <div className="app-screen relative">
               <MapView
                 from={from}
                 to={to}
@@ -250,6 +260,7 @@ export default function App() {
                 alternatives={visibleResult?.alternatives}
                 hotspots={mapEvidence?.hotspots ?? []}
                 reports={mapEvidence?.reports ?? []}
+                weatherAlerts={mapEvidence?.weather_alerts ?? []}
                 layers={layers}
                 routeOptions={result?.routes ?? []}
                 selectedRouteId={selectedRouteId}
@@ -272,6 +283,9 @@ export default function App() {
                         onUseCurrentLocation={useCurrentLocation}
                         onSubmit={submitRoute}
                         loading={loading}
+                        travelMode={travelMode}
+                        onSetTravelMode={setTravelMode}
+                        status={status}
                       />
                     ) : (
                       <div className="space-y-3">

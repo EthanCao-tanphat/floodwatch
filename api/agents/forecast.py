@@ -11,8 +11,13 @@ import json
 import math
 from pathlib import Path
 from typing import Dict, List, Optional
-from models import ConfidenceLevel, ForecastPoint, ForecastResponse, Passability, RiskEvidence, RiskLevel
-from services.openmeteo import fetch_rainfall, rainfall_in_window
+from models import ConfidenceLevel, EvidenceState, ForecastPoint, ForecastResponse, Passability, RiskEvidence, RiskLevel
+from services.openmeteo import (
+    fetch_rainfall,
+    fetch_river_discharge,
+    rainfall_in_window,
+    river_discharge_signal,
+)
 from services.tides import get_tide_level, tide_factor
 from services.coverage import resolve_coverage
 
@@ -84,17 +89,46 @@ def _confidence(tier: int, rain: float, hist_freq: float, report_count: int = 0)
     return "low"
 
 
+def _evidence_state(
+    rain: float,
+    tide_level_m: float,
+    hist_freq: float,
+    drainage_score: float,
+    river_ratio: float | None = None,
+) -> EvidenceState:
+    if rain >= 5 or tide_factor(tide_level_m) >= 0.5 or (river_ratio or 0.0) >= 1.25:
+        return "forecast"
+
+    if hist_freq >= 0.35 or drainage_score <= 0.45:
+        return "susceptibility"
+
+    return "forecast"
+
+
+def _active_probability(
+    prob: float,
+    state: EvidenceState,
+) -> float:
+    if state == "susceptibility":
+        return min(prob, 0.24)
+
+    return prob
+
+
 def _flood_probability_tier1(
     rainfall_mm_30min: float,
     tide_level_m: float,
     drainage_score: float,
     historical_freq: float,
+    river_ratio: float | None,
 ) -> float:
     """Full fusion — HCMC (Tier 1)."""
+    river_pressure = max(0.0, min(1.0, ((river_ratio or 1.0) - 1.0) / 0.8))
     z = (
         -2.5
         + 0.09 * rainfall_mm_30min
         + 2.0 * tide_factor(tide_level_m)
+        + 0.7 * river_pressure
         - 1.5 * drainage_score
         + 2.2 * historical_freq
     )
@@ -107,25 +141,33 @@ def _flood_probability_tier2(
     drainage_score: float,
     historical_freq: float,
     coastal: bool,
+    river_ratio: float | None,
 ) -> float:
     """Rainfall + drainage + (tide if coastal) + sparse hotspots — Tier 2."""
+    river_pressure = max(0.0, min(1.0, ((river_ratio or 1.0) - 1.0) / 0.8))
     z = (
         -2.2
         + 0.08 * rainfall_mm_30min
         + (1.6 * tide_factor(tide_level_m) if coastal else 0.0)
+        + 1.0 * river_pressure
         - 1.2 * drainage_score
         + 1.5 * historical_freq
     )
     return 1.0 / (1.0 + math.exp(-z))
 
 
-def _flood_probability_tier3(rainfall_mm_30min: float) -> float:
-    """Rainfall-only heavy-rain warning — Tier 3.
+def _flood_probability_tier3(
+    rainfall_mm_30min: float,
+    river_ratio: float | None,
+) -> float:
+    """Rainfall + river-discharge warning — Tier 3.
 
-    NOT a real flood prediction. Threshold above 20mm/30min = warning.
+    NOT a calibrated street-flood prediction. Threshold above 20mm/30min
+    or high GloFAS discharge creates a lower-confidence warning.
     Capped at 0.7 to signal lower confidence.
     """
-    z = -3.0 + 0.10 * rainfall_mm_30min
+    river_pressure = max(0.0, min(1.0, ((river_ratio or 1.0) - 1.0) / 0.8))
+    z = -3.0 + 0.10 * rainfall_mm_30min + 1.1 * river_pressure
     return min(0.70, 1.0 / (1.0 + math.exp(-z)))
 
 
@@ -134,6 +176,24 @@ async def forecast_segment(lat: float, lng: float, horizon_min: int = 60) -> For
     coverage = resolve_coverage(lat, lng)
     flood_data = _load_flood_data()
     rainfall_data = await fetch_rainfall(lat, lng, hours_ahead=3)
+    river_data = None
+
+    try:
+        river_data = river_discharge_signal(
+            await fetch_river_discharge(lat, lng, forecast_days=7)
+        )
+    except Exception:
+        river_data = {
+            "river_discharge_m3s": None,
+            "river_discharge_ratio": None,
+            "river_signal": "unavailable",
+        }
+
+    river_ratio = (
+        float(river_data["river_discharge_ratio"])
+        if river_data.get("river_discharge_ratio") is not None
+        else None
+    )
     tide_now = get_tide_level()
 
     # Pull city-specific data if available
@@ -148,25 +208,50 @@ async def forecast_segment(lat: float, lng: float, horizon_min: int = 60) -> For
 
     points: List[ForecastPoint] = []
     max_rain = 0.0
-    for minutes in (30, 60, 90):
+    states: List[EvidenceState] = []
+    for minutes in (0, 30, 60, 90):
         if minutes > horizon_min:
-            break
+            continue
         rain = rainfall_in_window(rainfall_data, minutes_from_now=minutes)
         max_rain = max(max_rain, rain)
 
+        state = _evidence_state(rain, tide_now, hist_freq, drainage_score, river_ratio)
+        states.append(state)
+
         if coverage["tier"] == 1:
-            prob = _flood_probability_tier1(rain, tide_now, drainage_score, hist_freq)
+            prob = _flood_probability_tier1(
+                rain,
+                tide_now,
+                drainage_score,
+                hist_freq,
+                river_ratio,
+            )
         elif coverage["tier"] == 2:
             prob = _flood_probability_tier2(
-                rain, tide_now, drainage_score, hist_freq, coverage["coastal"]
+                rain,
+                tide_now,
+                drainage_score,
+                hist_freq,
+                coverage["coastal"],
+                river_ratio,
             )
         else:
-            prob = _flood_probability_tier3(rain)
+            prob = _flood_probability_tier3(rain, river_ratio)
 
+        prob = _active_probability(prob, state)
         rounded_prob = round(prob, 3)
+        confidence = _confidence(coverage["tier"], rain, hist_freq)
+
+        if state == "susceptibility":
+            confidence = "low"
+
         evidence = RiskEvidence(
             rainfall_mm=round(rain, 1),
             tide_level_m=round(tide_now, 2),
+            river_discharge_m3s=river_data.get("river_discharge_m3s"),
+            river_discharge_ratio=river_data.get("river_discharge_ratio"),
+            river_signal=river_data.get("river_signal"),
+            river_source="Open-Meteo GloFAS river discharge",
             hotspot_proximity=round(hist_freq, 3),
             drainage_score=round(drainage_score, 3),
             report_count=0,
@@ -180,7 +265,8 @@ async def forecast_segment(lat: float, lng: float, horizon_min: int = 60) -> For
                 rainfall_mm=round(rain, 1),
                 risk_level=_risk_level(prob),
                 passability=_passability(prob),
-                confidence=_confidence(coverage["tier"], rain, hist_freq),
+                confidence=confidence,
+                evidence_state=state,
                 evidence=evidence,
             )
         )
@@ -188,23 +274,31 @@ async def forecast_segment(lat: float, lng: float, horizon_min: int = 60) -> For
     # Tier-appropriate explanation
     city = coverage["city_name_en"] or "outside pilot cities"
     if coverage["tier"] == 1:
+        if max_rain < 5 and hist_freq >= 0.35:
+            evidence_note = "No active rain signal; hotspot/drainage data indicates historical susceptibility."
+        else:
+            evidence_note = "Forecast evidence includes active weather or tide pressure."
+
         explanation = (
             f"{city} (Tier 1, full model). "
             f"Tide {tide_now}m; {max_rain:.1f}mm rain in next {horizon_min}min; "
+            f"GloFAS river signal {river_data.get('river_signal')}; "
             f"historical hotspot proximity {hist_freq:.0%}; "
-            f"drainage score {drainage_score:.0%}."
+            f"drainage score {drainage_score:.0%}. {evidence_note}"
         )
     elif coverage["tier"] == 2:
         tide_str = f"tide {tide_now}m; " if coverage["coastal"] else ""
         explanation = (
             f"{city} (Tier 2, rainfall + drainage). "
             f"{tide_str}{max_rain:.1f}mm rain in next {horizon_min}min; "
+            f"GloFAS river signal {river_data.get('river_signal')}; "
             f"drainage score {drainage_score:.0%}."
         )
     else:
         explanation = (
-            f"Outside pilot cities (Tier 3, rainfall warning only). "
-            f"{max_rain:.1f}mm rain forecast in next {horizon_min}min."
+            f"Outside pilot cities (Tier 3, rainfall + river-discharge warning only). "
+            f"{max_rain:.1f}mm rain forecast in next {horizon_min}min; "
+            f"GloFAS river signal {river_data.get('river_signal')}."
         )
 
     return ForecastResponse(
@@ -212,5 +306,6 @@ async def forecast_segment(lat: float, lng: float, horizon_min: int = 60) -> For
         lng=lng,
         district=coverage["city_id"] or "vietnam",
         points=points,
+        evidence_state="forecast" if "forecast" in states else "susceptibility",
         explanation=explanation,
     )

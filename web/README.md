@@ -56,7 +56,7 @@ web/
 
 | Var | Local | Prod |
 |---|---|---|
-| `VITE_API_BASE_URL` | `http://localhost:8000` | `https://<user>-floodwatch-api.hf.space` |
+| `VITE_API_BASE_URL` | `http://localhost:8000` | `https://floodwatch-api.onrender.com` |
 
 No mapping API keys. OpenFreeMap tiles are free + no auth.
 
@@ -66,7 +66,7 @@ No mapping API keys. OpenFreeMap tiles are free + no auth.
 2. Vercel → new project → import repo.
 3. **Root directory: `web/`**.
 4. Framework: Vite.
-5. Env var: `VITE_API_BASE_URL` pointing at your HF Space.
+5. Env var: `VITE_API_BASE_URL` pointing at your deployed backend.
 6. Deploy.
 
 ## Replay the intro

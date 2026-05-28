@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from config import OPENMETEO_URL
+from config import OPENMETEO_FLOOD_URL, OPENMETEO_URL
 
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
@@ -129,6 +129,112 @@ async def fetch_rainfall(
             return stale
 
         raise
+
+
+async def fetch_river_discharge(
+    lat: float,
+    lng: float,
+    forecast_days: int = 7,
+) -> Dict[str, Any]:
+    """Fetch GloFAS river-discharge forecast through Open-Meteo.
+
+    This is a real river forecast signal, not a street-flood observation.
+    Open-Meteo selects the largest nearby river within roughly 5 km.
+    """
+
+    lat_key = round(float(lat), CACHE_COORD_PRECISION)
+    lng_key = round(float(lng), CACHE_COORD_PRECISION)
+
+    params = {
+        "latitude": lat_key,
+        "longitude": lng_key,
+        "daily": (
+            "river_discharge,"
+            "river_discharge_mean,"
+            "river_discharge_p75,"
+            "river_discharge_max"
+        ),
+        "forecast_days": max(1, min(int(forecast_days), 30)),
+        "timezone": "Asia/Ho_Chi_Minh",
+    }
+
+    cache_path = _cache_key(OPENMETEO_FLOOD_URL, params)
+
+    cached = _read_cache(cache_path, CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(OPENMETEO_FLOOD_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        _write_cache(cache_path, data)
+        return data
+
+    except Exception:
+        stale = _read_cache(cache_path, STALE_TTL_SECONDS)
+
+        if stale is not None:
+            return stale
+
+        raise
+
+
+def river_discharge_signal(open_meteo_flood_data: Dict[str, Any]) -> Dict[str, float | str | None]:
+    """Convert GloFAS discharge arrays into a conservative route signal."""
+
+    daily = open_meteo_flood_data.get("daily", {}) or {}
+
+    discharge_values = [
+        float(value)
+        for value in (daily.get("river_discharge", []) or [])[:7]
+        if value is not None
+    ]
+    p75_values = [
+        float(value)
+        for value in (daily.get("river_discharge_p75", []) or [])[:7]
+        if value is not None
+    ]
+    mean_values = [
+        float(value)
+        for value in (daily.get("river_discharge_mean", []) or [])[:7]
+        if value is not None
+    ]
+
+    if not discharge_values:
+        return {
+            "river_discharge_m3s": None,
+            "river_discharge_ratio": None,
+            "river_signal": "unavailable",
+        }
+
+    peak = max(discharge_values)
+    reference_candidates = [*p75_values, *mean_values]
+    reference = max(reference_candidates) if reference_candidates else None
+
+    if reference is None or reference <= 0:
+        return {
+            "river_discharge_m3s": round(peak, 2),
+            "river_discharge_ratio": None,
+            "river_signal": "available",
+        }
+
+    ratio = peak / reference
+
+    if ratio >= 1.6:
+        signal = "high"
+    elif ratio >= 1.25:
+        signal = "moderate"
+    else:
+        signal = "normal"
+
+    return {
+        "river_discharge_m3s": round(peak, 2),
+        "river_discharge_ratio": round(ratio, 2),
+        "river_signal": signal,
+    }
 
 
 def rainfall_in_window(

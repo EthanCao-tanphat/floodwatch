@@ -1,5 +1,4 @@
 """Pydantic schemas for FloodWatch API."""
-
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -7,6 +6,8 @@ from pydantic import BaseModel, Field
 
 RiskLevel = Literal["low", "moderate", "high", "severe"]
 ConfidenceLevel = Literal["low", "medium", "high"]
+EvidenceState = Literal["live", "forecast", "susceptibility", "unavailable"]
+TravelMode = Literal["motorbike", "car", "walk", "bicycle", "transit"]
 
 Passability = Literal[
     "safe",
@@ -27,6 +28,10 @@ class Coord(BaseModel):
 class RiskEvidence(BaseModel):
     rainfall_mm: float = 0.0
     tide_level_m: Optional[float] = None
+    river_discharge_m3s: Optional[float] = None
+    river_discharge_ratio: Optional[float] = None
+    river_signal: Optional[str] = None
+    river_source: Optional[str] = None
     hotspot_proximity: float = 0.0
     drainage_score: Optional[float] = None
     report_count: int = 0
@@ -60,12 +65,13 @@ class ForecastRequest(BaseModel):
 
 class ForecastPoint(BaseModel):
     minutes_ahead: int
-    probability: float
+    probability: float 
     risk_score: float
     rainfall_mm: float
     risk_level: RiskLevel
     passability: Passability
     confidence: ConfidenceLevel
+    evidence_state: EvidenceState = "forecast"
     evidence: RiskEvidence
 
 
@@ -74,6 +80,7 @@ class ForecastResponse(BaseModel):
     lng: float
     district: str
     points: List[ForecastPoint]
+    evidence_state: EvidenceState = "forecast"
     explanation: str
 
 
@@ -84,6 +91,7 @@ class RouteRequest(BaseModel):
     from_: Coord = Field(..., alias="from")
     to: Coord
     depart_at_min: int = 0
+    travel_mode: TravelMode = "motorbike"
 
     class Config:
         populate_by_name = True
@@ -98,6 +106,7 @@ class RouteSegment(BaseModel):
     risk_level: RiskLevel
     passability: Passability
     confidence: ConfidenceLevel
+    evidence_state: EvidenceState = "forecast"
     evidence: RiskEvidence
 
 
@@ -110,10 +119,30 @@ class AlternativeRoute(BaseModel):
     is_fastest: bool = False
     route_id: Optional[str] = None
 
+class RouteTimelinePoint(BaseModel):
+    minutes_ahead: int
+    flood_prob_max: float
+    flood_prob_avg: float
+
+    risk_level: RiskLevel
+    passability: Passability
+    confidence: ConfidenceLevel
+    evidence_state: EvidenceState = "forecast"
+
+    high_risk_segments: int = 0
+    severe_segments: int = 0
+
+    rainfall_mm_max: float = 0.0
+    tide_level_m: Optional[float] = None
+
+    dominant_signal: str = ""
+    recommendation: str = ""
+
 
 class RouteCandidate(BaseModel):
     id: str
     label: str
+    street_summary: str = ""
     distance_km: float
     eta_min: int
     points: List[Coord]
@@ -122,6 +151,7 @@ class RouteCandidate(BaseModel):
     overall_risk: RiskLevel
     overall_passability: Passability
     confidence: ConfidenceLevel
+    evidence_state: EvidenceState = "forecast"
 
     recommendation: str
     flood_prob_max: float
@@ -131,6 +161,13 @@ class RouteCandidate(BaseModel):
     is_safest: bool = False
 
     tradeoff_summary: str = ""
+    
+    timeline: List[RouteTimelinePoint] = Field(default_factory=list)
+    future_peak_risk: RiskLevel = "low"
+    future_peak_min: int = 0
+    future_risk_summary: str = ""
+    route_score: float = 0.0
+    travel_mode: TravelMode = "motorbike"
 
 
 class RouteResponse(BaseModel):
@@ -142,6 +179,7 @@ class RouteResponse(BaseModel):
     overall_risk: RiskLevel
     overall_passability: Passability
     confidence: ConfidenceLevel
+    evidence_state: EvidenceState = "forecast"
 
     recommendation: str
     rerouted: bool = False
@@ -156,6 +194,13 @@ class RouteResponse(BaseModel):
 
     # Vietnam-wide confidence tier.
     coverage: Optional[CoverageInfo] = None
+    
+    timeline: List[RouteTimelinePoint] = Field(default_factory=list)
+    future_peak_risk: RiskLevel = "low"
+    future_peak_min: int = 0
+    future_risk_summary: str = ""
+    route_score: float = 0.0
+    travel_mode: TravelMode = "motorbike"
 
 
 # ---------- /report/depth ----------
@@ -174,3 +219,47 @@ class DepthReportResponse(BaseModel):
     reasoning: str
     lat: float
     lng: float
+    
+
+SearchProvider = Literal["google", "local", "nominatim", "coordinate"]
+
+class SearchSuggestion(BaseModel):
+    place_id: str
+    provider: SearchProvider
+
+    title: str
+    subtitle: str = ""
+    description: str = ""
+
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+    needs_resolve: bool = True
+    source: str = ""
+
+
+class PlaceResolveRequest(BaseModel):
+    place_id: str
+    provider: SearchProvider
+
+    title: str = ""
+    subtitle: str = ""
+
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+    session_token: Optional[str] = None
+
+
+class PlaceResolveResponse(BaseModel):
+    place_id: str
+    provider: SearchProvider
+
+    title: str
+    subtitle: str = ""
+    label: str
+
+    lat: float
+    lng: float
+
+    source: str = ""

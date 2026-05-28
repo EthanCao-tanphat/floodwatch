@@ -100,7 +100,8 @@ export function AlertsPanel({ result, status, onClose }: Props) {
                 {(seg.evidence.hotspot_proximity * 100).toFixed(0)}% · Drainage{' '}
                 {seg.evidence.drainage_score !== null
                   ? `${(seg.evidence.drainage_score * 100).toFixed(0)}%`
-                  : 'n/a'}
+                  : 'n/a'} · River{' '}
+                {seg.evidence.river_discharge_ratio?.toFixed(2) ?? 'n/a'}x
               </div>
             </div>
           ))}

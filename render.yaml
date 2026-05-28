@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: floodwatch-api
+    runtime: docker
+    rootDir: api
+    plan: free
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: DASHSCOPE_API_KEY
+        sync: false
+      - key: DASHSCOPE_BASE_URL
+        value: https://dashscope-intl.aliyuncs.com/api/v1
+      - key: GRAPHHOPPER_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false

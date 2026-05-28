@@ -45,3 +45,5 @@ build/
 api/.cache/
 .cache/
 web/tsconfig.tsbuildinfo
+api/.env
+web/dist/

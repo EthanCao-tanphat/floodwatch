@@ -13,11 +13,14 @@ critical demo corridors use local aliases.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 import re
 import time
 import unicodedata
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +28,13 @@ import httpx
 
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+GOOGLE_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete"
+GOOGLE_PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places"
+
+HCMC_BIAS_CENTER = {
+    "latitude": 10.7769,
+    "longitude": 106.7009,
+}
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -137,6 +147,31 @@ LOCAL_PLACES: List[Dict[str, Any]] = [
             "pham van dong",
             "pham van dong hcmc",
             "phạm văn đồng",
+        ],
+    },
+        {
+        "label": "Dai hoc Van Hien, Ho Chi Minh City, Vietnam",
+        "lat": 10.7315,
+        "lng": 106.6861,
+        "aliases": [
+            "dai hoc van hien",
+            "đại học văn hiến",
+            "van hien university",
+            "truong dai hoc van hien",
+            "trường đại học văn hiến",
+        ],
+    },
+        {
+        "label": "Vincom Mega Mall Thao Dien, Thu Duc, Ho Chi Minh City, Vietnam",
+        "lat": 10.8022,
+        "lng": 106.7419,
+        "aliases": [
+            "vincom thao dien",
+            "vincom thảo điền",
+            "vincom mega mall thao dien",
+            "vincom mega mall thảo điền",
+            "vincom thu duc",
+            "vincom thủ đức",
         ],
     },
     {
@@ -257,18 +292,192 @@ def _bias_hcmc(query: str) -> str:
 
     return f"{q}, Vietnam"
 
+def _google_places_key() -> str:
+    return (
+        os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
+        or os.getenv("GOOGLE_MAPS_API_KEY", "").strip()
+    )
+
+
+async def _google_place_details(
+    client: httpx.AsyncClient,
+    api_key: str,
+    place_id: str,
+    session_token: str,
+) -> Optional[Dict[str, Any]]:
+    headers = {
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": "id,displayName,formattedAddress,location,types",
+    }
+
+    params = {
+        "languageCode": "vi",
+        "regionCode": "vn",
+        "sessionToken": session_token,
+    }
+
+    try:
+        res = await client.get(
+            f"{GOOGLE_PLACE_DETAILS_URL}/{place_id}",
+            headers=headers,
+            params=params,
+        )
+        res.raise_for_status()
+        data = res.json()
+    except Exception:
+        return None
+
+    location = data.get("location") or {}
+
+    try:
+        lat = float(location["latitude"])
+        lng = float(location["longitude"])
+    except Exception:
+        return None
+
+    display_name = (data.get("displayName") or {}).get("text")
+    formatted_address = data.get("formattedAddress")
+
+    if display_name and formatted_address:
+        label = f"{display_name}, {formatted_address}"
+    else:
+        label = formatted_address or display_name or "Google place"
+
+    return {
+        "label": label,
+        "lat": lat,
+        "lng": lng,
+        "source": "google_places",
+        "importance": 2.0,
+        "place_id": data.get("id") or place_id,
+        "types": data.get("types", []),
+    }
+
+
+async def _google_places_results(query: str, limit: int) -> List[Dict[str, Any]]:
+    api_key = _google_places_key()
+
+    if not api_key:
+        return []
+
+    session_token = uuid.uuid4().hex
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": (
+            "suggestions.placePrediction.placeId,"
+            "suggestions.placePrediction.text.text"
+        ),
+    }
+
+    body = {
+        "input": query,
+        "includedRegionCodes": ["vn"],
+        "languageCode": "vi",
+        "regionCode": "vn",
+        "sessionToken": session_token,
+        "locationBias": {
+            "circle": {
+                "center": HCMC_BIAS_CENTER,
+                "radius": 65000.0,
+            }
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.post(GOOGLE_AUTOCOMPLETE_URL, headers=headers, json=body)
+            res.raise_for_status()
+            raw = res.json()
+
+            predictions = []
+
+            for item in raw.get("suggestions", []):
+                prediction = item.get("placePrediction")
+                if not prediction:
+                    continue
+
+                place_id = prediction.get("placeId")
+                text = ((prediction.get("text") or {}).get("text") or "").strip()
+
+                if not place_id:
+                    continue
+
+                predictions.append(
+                    {
+                        "place_id": place_id,
+                        "fallback_label": text,
+                    }
+                )
+
+            predictions = predictions[:limit]
+
+            details = await asyncio.gather(
+                *[
+                    _google_place_details(
+                        client=client,
+                        api_key=api_key,
+                        place_id=item["place_id"],
+                        session_token=session_token,
+                    )
+                    for item in predictions
+                ],
+                return_exceptions=True,
+            )
+
+    except Exception:
+        return []
+
+    results: List[Dict[str, Any]] = []
+
+    for item, detail in zip(predictions, details):
+        if isinstance(detail, dict):
+            results.append(detail)
+            continue
+
+        # If details failed, keep no-coordinate predictions out because route needs lat/lng.
+        # Nominatim/local fallback below can still answer the query.
+        continue
+
+    return results[:limit]
 
 async def geocode_address(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     query = query.strip()
     limit = max(1, min(int(limit), 8))
 
-    # 1. Local alias match first. This is instant and reliable for demo roads.
+    # 1. Local alias match first. Instant and reliable for scripted demo roads.
     local = _local_results(query, limit)
+
+    # 2. Google Places next. This makes search feel close to Google Maps when a key exists.
+    google = await _google_places_results(query, limit)
+
+    if google:
+        merged: List[Dict[str, Any]] = []
+        seen = set()
+
+        for item in [*local, *google]:
+            try:
+                key = (
+                    f"{round(float(item['lat']), 5)}:"
+                    f"{round(float(item['lng']), 5)}:"
+                    f"{item.get('label', '')}"
+                )
+            except Exception:
+                continue
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+            merged.append(item)
+
+        return merged[:limit]
 
     if local:
         return local
 
-    # 2. Cached Nominatim result.
+    # 3. Cached Nominatim result.
     biased_query = _bias_hcmc(query)
     cache_path = _cache_key(biased_query, limit)
 
@@ -277,7 +486,7 @@ async def geocode_address(query: str, limit: int = 5) -> List[Dict[str, Any]]:
     if cached is not None:
         return cached
 
-    # 3. OpenStreetMap / Nominatim fallback.
+    # 4. OpenStreetMap / Nominatim fallback.
     params = {
         "q": biased_query,
         "format": "jsonv2",

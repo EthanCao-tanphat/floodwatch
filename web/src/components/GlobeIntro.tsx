@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+
 import { LandingScreen } from './LandingScreen'
+import { LangToggle } from './LangToggle'
 
 interface Props {
   onContinue: () => void
@@ -17,22 +16,40 @@ type Pin = {
   kind: 'primary' | 'secondary'
 }
 
+type DebugLine = {
+  level: 'warn' | 'error'
+  message: string
+}
+
 const EARTH_TEXTURE_URL = '/earth-night.jpg'
-const GLOBE_RADIUS = 2.2
-const BORDER_RADIUS = GLOBE_RADIUS * 1.008
-const BORDER_OPACITY = 0.18
+const GLOBE_RADIUS = 2.1
+
 const PINS: Pin[] = [
   { id: 'vietnam', lat: 14.0583, lng: 108.2772, kind: 'primary' },
-  { id: 'jakarta', lat: -6.2088, lng: 106.8456, kind: 'secondary' },
-  { id: 'manila', lat: 14.5995, lng: 120.9842, kind: 'secondary' },
-  { id: 'bangkok', lat: 13.7563, lng: 100.5018, kind: 'secondary' },
-  { id: 'hanoi', lat: 21.0278, lng: 105.8342, kind: 'secondary' },
   { id: 'hcmc', lat: 10.8231, lng: 106.6297, kind: 'primary' },
+  { id: 'hanoi', lat: 21.0278, lng: 105.8342, kind: 'secondary' },
+  { id: 'bangkok', lat: 13.7563, lng: 100.5018, kind: 'secondary' },
+  { id: 'manila', lat: 14.5995, lng: 120.9842, kind: 'secondary' },
+  { id: 'jakarta', lat: -6.2088, lng: 106.8456, kind: 'secondary' },
 ]
+
+function supportsWebGL() {
+  try {
+    const canvas = document.createElement('canvas')
+    return Boolean(
+      canvas.getContext('webgl2') ||
+        canvas.getContext('webgl') ||
+        canvas.getContext('experimental-webgl')
+    )
+  } catch {
+    return false
+  }
+}
 
 function latLngToVector3(lat: number, lng: number, radius: number) {
   const phi = (90 - lat) * (Math.PI / 180)
   const theta = (lng + 180) * (Math.PI / 180)
+
   return new THREE.Vector3(
     -radius * Math.sin(phi) * Math.cos(theta),
     radius * Math.cos(phi),
@@ -40,117 +57,32 @@ function latLngToVector3(lat: number, lng: number, radius: number) {
   )
 }
 
-function lonLatToVector3(lon: number, lat: number, radius: number) {
-  return latLngToVector3(lat, lon, radius)
-}
-
-function interpolateGreatCircle(start: THREE.Vector3, end: THREE.Vector3, segments = 5) {
-  const points: THREE.Vector3[] = []
-  const a = start.clone().normalize()
-  const b = end.clone().normalize()
-  const dot = THREE.MathUtils.clamp(a.dot(b), -1, 1)
-  const omega = Math.acos(dot)
-  const sinOmega = Math.sin(omega)
-
-  for (let i = 0; i <= segments; i += 1) {
-    const t = i / segments
-    let point: THREE.Vector3
-    if (sinOmega < 1e-5) {
-      point = a.clone().lerp(b, t).normalize()
-    } else {
-      const scaleA = Math.sin((1 - t) * omega) / sinOmega
-      const scaleB = Math.sin(t * omega) / sinOmega
-      point = a
-        .clone()
-        .multiplyScalar(scaleA)
-        .add(b.clone().multiplyScalar(scaleB))
-        .normalize()
-    }
-    point.multiplyScalar(start.length())
-    points.push(point)
-  }
-
-  return points
-}
-
-function pushRingSegments(
-  ring: number[][],
-  positions: number[],
-  radius: number,
-  curveSegments = 5
-) {
-  for (let i = 0; i < ring.length - 1; i += 1) {
-    const [lon1, lat1] = ring[i]
-    const [lon2, lat2] = ring[i + 1]
-    if (Math.abs(lon2 - lon1) > 180) continue
-
-    const start = lonLatToVector3(lon1, lat1, radius)
-    const end = lonLatToVector3(lon2, lat2, radius)
-    const curve = interpolateGreatCircle(start, end, curveSegments)
-
-    for (let j = 0; j < curve.length - 1; j += 1) {
-      const a = curve[j]
-      const b = curve[j + 1]
-      positions.push(a.x, a.y, a.z, b.x, b.y, b.z)
-    }
-  }
-}
-
-function buildBorderPositions(geojson: any, radius: number) {
-  const positions: number[] = []
-  const features = Array.isArray(geojson?.features) ? geojson.features : []
-
-  for (const feature of features) {
-    const geometry = feature?.geometry
-    if (!geometry) continue
-
-    if (geometry.type === 'Polygon') {
-      for (const ring of geometry.coordinates as number[][][]) {
-        pushRingSegments(ring, positions, radius)
-      }
-    } else if (geometry.type === 'MultiPolygon') {
-      for (const polygon of geometry.coordinates as number[][][][]) {
-        for (const ring of polygon) {
-          pushRingSegments(ring, positions, radius)
-        }
-      }
-    }
-  }
-
-  return positions
-}
-
-function supportsWebGL() {
-  try {
-    const canvas = document.createElement('canvas')
-    return Boolean(canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
-  } catch {
-    return false
-  }
-}
-
 function createFallbackEarthTexture() {
   const canvas = document.createElement('canvas')
   canvas.width = 1024
   canvas.height = 512
+
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
 
   const ocean = ctx.createLinearGradient(0, 0, 0, canvas.height)
   ocean.addColorStop(0, '#071526')
-  ocean.addColorStop(0.45, '#0d3047')
-  ocean.addColorStop(1, '#06101f')
+  ocean.addColorStop(0.48, '#0b2a42')
+  ocean.addColorStop(1, '#04101d')
+
   ctx.fillStyle = ocean
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
   ctx.strokeStyle = 'rgba(125, 211, 252, 0.12)'
   ctx.lineWidth = 1
+
   for (let x = 0; x <= canvas.width; x += 64) {
     ctx.beginPath()
     ctx.moveTo(x, 0)
     ctx.lineTo(x, canvas.height)
     ctx.stroke()
   }
+
   for (let y = 64; y < canvas.height; y += 64) {
     ctx.beginPath()
     ctx.moveTo(0, y)
@@ -158,11 +90,12 @@ function createFallbackEarthTexture() {
     ctx.stroke()
   }
 
-  const land = ctx.createLinearGradient(0, 120, 0, 410)
+  const land = ctx.createLinearGradient(0, 120, 0, 420)
   land.addColorStop(0, '#315e55')
-  land.addColorStop(1, '#122d2b')
+  land.addColorStop(1, '#112d2b')
+
   ctx.fillStyle = land
-  ctx.shadowColor = 'rgba(20, 184, 166, 0.4)'
+  ctx.shadowColor = 'rgba(20, 184, 166, 0.35)'
   ctx.shadowBlur = 18
 
   const blobs: Array<[number, number, number, number, number]> = [
@@ -183,20 +116,20 @@ function createFallbackEarthTexture() {
   }
 
   ctx.shadowBlur = 0
-  ctx.fillStyle = 'rgba(248, 113, 113, 0.85)'
+
+  ctx.fillStyle = 'rgba(248, 113, 113, 0.9)'
   ctx.beginPath()
   ctx.arc(820, 252, 5, 0, Math.PI * 2)
   ctx.fill()
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.12)'
-  for (let i = 0; i < 180; i++) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    ctx.fillRect(x, y, 1, 1)
+  for (let i = 0; i < 180; i += 1) {
+    ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 1, 1)
   }
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
+
   return texture
 }
 
@@ -204,6 +137,7 @@ function createPulseTexture() {
   const canvas = document.createElement('canvas')
   canvas.width = 256
   canvas.height = 256
+
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
 
@@ -213,210 +147,169 @@ function createPulseTexture() {
   gradient.addColorStop(0.68, 'rgba(255, 110, 124, 0.84)')
   gradient.addColorStop(0.84, 'rgba(255, 77, 93, 0.28)')
   gradient.addColorStop(1, 'rgba(255, 77, 93, 0)')
+
   ctx.fillStyle = gradient
   ctx.fillRect(0, 0, 256, 256)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
+
   return texture
 }
 
 export function GlobeIntro({ onContinue }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+
   const [fallback, setFallback] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [debugLines, setDebugLines] = useState<DebugLine[]>([])
+  const [debugDetails, setDebugDetails] = useState('Waiting for globe renderer...')
+  const [debugMode] = useState(() =>
+    new URLSearchParams(window.location.search).has('debugGlobe')
+  )
 
   useEffect(() => {
     const container = containerRef.current
-    if (!container || !supportsWebGL()) {
+
+    if (!container) return
+
+    if (!supportsWebGL()) {
+      const message = '[GlobeIntro] WebGL is not available. Falling back.'
+      console.error(message)
+      setDebugLines([{ level: 'error', message }])
       setFallback(true)
       return
     }
 
     let frame = 0
     let disposed = false
-    const isMobile = window.matchMedia('(max-width: 768px)').matches
-    const sphereSegments = isMobile ? 32 : 64
-    let clouds: THREE.Mesh | null = null
-    let cloudMaterial: THREE.ShaderMaterial | null = null
-    let borderMaterial: THREE.LineBasicMaterial | null = null
-    const clickTargets: THREE.Object3D[] = []
+
+    function pushDebug(level: 'warn' | 'error', message: string, extra?: unknown) {
+      const suffix =
+        extra instanceof Error
+          ? `: ${extra.message}`
+          : extra
+            ? `: ${String(extra)}`
+            : ''
+
+      const fullMessage = `[GlobeIntro] ${message}${suffix}`
+
+      if (level === 'error') console.error(fullMessage, extra)
+      else console.warn(fullMessage, extra)
+
+      if (!disposed) {
+        setDebugLines((prev) => [...prev, { level, message: fullMessage }].slice(-6))
+      }
+    }
+
+    console.info('[GlobeIntro] Mounting globe renderer')
 
     const scene = new THREE.Scene()
-    scene.fog = new THREE.Fog(0x050914, 8, 16)
+    scene.fog = new THREE.Fog(0x263751, 10, 18)
 
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100)
-    camera.position.set(0, 0.15, 7.2)
+    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100)
+    camera.position.set(0, 0.02, 8.2)
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2))
-    renderer.setClearColor(0x050914, 1)
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+    })
+
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    renderer.setClearColor(0x263751, 1)
+    renderer.domElement.style.width = '100%'
+    renderer.domElement.style.height = '100%'
+    renderer.domElement.style.display = 'block'
+
     container.appendChild(renderer.domElement)
-
-    const composer = new EffectComposer(renderer)
-    const renderPass = new RenderPass(scene, camera)
-    composer.addPass(renderPass)
-    let bloomPass: UnrealBloomPass | null = null
-    if (!isMobile) {
-      bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.34, 0.28, 0.96)
-      composer.addPass(bloomPass)
-    }
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableZoom = false
     controls.enablePan = false
-    controls.rotateSpeed = 0.4
-    controls.dampingFactor = 0.05
     controls.enableDamping = true
+    controls.dampingFactor = 0.06
+    controls.rotateSpeed = 0.35
     controls.autoRotate = true
-    controls.autoRotateSpeed = 0.65
+    controls.autoRotateSpeed = 0.35
+
     controls.addEventListener('start', () => {
       controls.autoRotate = false
     })
 
     const raycaster = new THREE.Raycaster()
     const pointer = new THREE.Vector2()
+    const clickTargets: THREE.Object3D[] = []
+
     const globeGroup = new THREE.Group()
-    globeGroup.position.x = isMobile ? 0.7 : 1.56
-    globeGroup.position.y = isMobile ? -0.08 : -0.02
+
+    // This keeps Vietnam / Southeast Asia facing the camera on load.
     globeGroup.rotation.y = Math.PI
+
     scene.add(globeGroup)
 
-    const ambient = new THREE.AmbientLight(0x87a9ff, 1.1)
+    const ambient = new THREE.AmbientLight(0x9bb8ff, 1.2)
     scene.add(ambient)
+
     const key = new THREE.DirectionalLight(0xffffff, 2.2)
     key.position.set(4, 2, 5)
     scene.add(key)
-    const rim = new THREE.DirectionalLight(0x38bdf8, 1.6)
-    rim.position.set(-5, 1, -3)
+
+    const rim = new THREE.DirectionalLight(0x38bdf8, 1.9)
+    rim.position.set(-5, 1.2, -3)
     scene.add(rim)
 
+    const fallbackTexture = createFallbackEarthTexture()
+
     const earthMaterial = new THREE.MeshStandardMaterial({
-      map: createFallbackEarthTexture(),
+      map: fallbackTexture,
       roughness: 0.82,
       metalness: 0.04,
     })
+
     const earth = new THREE.Mesh(
-      new THREE.SphereGeometry(GLOBE_RADIUS, sphereSegments, sphereSegments),
+      new THREE.SphereGeometry(GLOBE_RADIUS, 96, 96),
       earthMaterial
     )
+
     globeGroup.add(earth)
-    setLoaded(true)
 
     const textureLoader = new THREE.TextureLoader()
+
     textureLoader.load(
       EARTH_TEXTURE_URL,
       (texture) => {
-        if (disposed) return
+        if (disposed) {
+          texture.dispose()
+          return
+        }
+
+        console.info('[GlobeIntro] Earth texture loaded:', EARTH_TEXTURE_URL)
+
         texture.colorSpace = THREE.SRGBColorSpace
+        earthMaterial.map?.dispose()
         earthMaterial.map = texture
         earthMaterial.needsUpdate = true
       },
       undefined,
-      () => setLoaded(true)
+      (error) => {
+        pushDebug(
+          'warn',
+          `Could not load ${EARTH_TEXTURE_URL}; using generated fallback texture`,
+          error
+        )
+      }
     )
-
-    fetch('/sea-borders.geojson')
-      .then((response) => {
-        if (!response.ok) throw new Error(`Border fetch failed: ${response.status}`)
-        return response.json()
-      })
-      .then((geojson) => {
-        if (disposed) return
-        const positions = buildBorderPositions(geojson, BORDER_RADIUS)
-        if (!positions.length) return
-
-        const borderGeometry = new THREE.BufferGeometry()
-        borderGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-        borderMaterial = new THREE.LineBasicMaterial({
-          color: 0x5da9ff,
-          transparent: true,
-          opacity: 0,
-          depthTest: true,
-          depthWrite: false,
-        })
-        const borders = new THREE.LineSegments(borderGeometry, borderMaterial)
-        globeGroup.add(borders)
-      })
-      .catch(() => {
-        borderMaterial = null
-      })
-
-    cloudMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uOpacity: { value: isMobile ? 0.14 : 0.18 },
-      },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        varying vec2 vUv;
-        uniform float uTime;
-        uniform float uOpacity;
-
-        float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-        }
-
-        float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          f = f * f * (3.0 - 2.0 * f);
-
-          float a = hash(i);
-          float b = hash(i + vec2(1.0, 0.0));
-          float c = hash(i + vec2(0.0, 1.0));
-          float d = hash(i + vec2(1.0, 1.0));
-
-          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-        }
-
-        float fbm(vec2 p) {
-          float v = 0.0;
-          float amp = 0.5;
-          for (int i = 0; i < 5; i++) {
-            v += amp * noise(p);
-            p *= 2.0;
-            amp *= 0.5;
-          }
-          return v;
-        }
-
-        float makeClouds(vec2 uv) {
-          float large = fbm(uv * 14.0);
-          float detail = fbm(uv * 68.0);
-          float cloud = large * detail;
-          return smoothstep(0.4, 0.57, cloud);
-        }
-
-        void main() {
-          vec2 cloudUv = vUv + vec2(uTime * 0.0075, 0.0);
-          float clouds = makeClouds(cloudUv);
-          vec3 cloudColor = vec3(0.85, 0.9, 1.0);
-          gl_FragColor = vec4(cloudColor, clouds * uOpacity);
-        }
-      `,
-      transparent: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    })
-    clouds = new THREE.Mesh(
-      new THREE.SphereGeometry(GLOBE_RADIUS * 1.005, sphereSegments, sphereSegments),
-      cloudMaterial
-    )
-    clouds.rotation.y = 0.18
-    globeGroup.add(clouds)
 
     const atmosphere = new THREE.Mesh(
-      new THREE.SphereGeometry(GLOBE_RADIUS * 1.045, sphereSegments, sphereSegments),
+      new THREE.SphereGeometry(GLOBE_RADIUS * 1.05, 96, 96),
       new THREE.ShaderMaterial({
         vertexShader: `
           varying vec3 vNormal;
+
           void main() {
             vNormal = normalize(normalMatrix * normal);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -424,8 +317,9 @@ export function GlobeIntro({ onContinue }: Props) {
         `,
         fragmentShader: `
           varying vec3 vNormal;
+
           void main() {
-            float intensity = pow(0.78 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.5);
+            float intensity = pow(0.78 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.45);
             gl_FragColor = vec4(0.16, 0.62, 0.95, 0.82) * intensity;
           }
         `,
@@ -434,42 +328,45 @@ export function GlobeIntro({ onContinue }: Props) {
         transparent: true,
       })
     )
+
     globeGroup.add(atmosphere)
 
-    const pinMaterialPrimary = new THREE.MeshStandardMaterial({
+    const primaryPinMaterial = new THREE.MeshStandardMaterial({
       color: 0xff4d5d,
       emissive: new THREE.Color('#ff415f'),
-      emissiveIntensity: 2.25,
+      emissiveIntensity: 2.4,
       roughness: 0.28,
       metalness: 0.04,
     })
-    const pinMaterialSecondary = new THREE.MeshStandardMaterial({
+
+    const secondaryPinMaterial = new THREE.MeshStandardMaterial({
       color: 0x94a3b8,
       emissive: new THREE.Color('#9fb0c8'),
-      emissiveIntensity: 0.12,
+      emissiveIntensity: 0.18,
       roughness: 0.4,
       metalness: 0.04,
     })
+
     const pulseTexture = createPulseTexture()
     const pulseSprites: Array<{ sprite: THREE.Sprite; phase: number }> = []
 
     for (const pin of PINS) {
-      const pos = latLngToVector3(pin.lat, pin.lng, GLOBE_RADIUS + 0.04)
-      const anchor = new THREE.Group()
-      anchor.position.copy(pos)
-      globeGroup.add(anchor)
+      const pos = latLngToVector3(pin.lat, pin.lng, GLOBE_RADIUS + 0.045)
 
       const marker = new THREE.Mesh(
-        new THREE.SphereGeometry(pin.kind === 'primary' ? 0.055 : 0.04, 18, 18),
-        pin.kind === 'primary' ? pinMaterialPrimary : pinMaterialSecondary
+        new THREE.SphereGeometry(pin.kind === 'primary' ? 0.06 : 0.04, 20, 20),
+        pin.kind === 'primary' ? primaryPinMaterial : secondaryPinMaterial
       )
+
+      marker.position.copy(pos)
       marker.userData.pinId = pin.id
       marker.userData.primary = pin.kind === 'primary'
-      anchor.add(marker)
+
+      globeGroup.add(marker)
       clickTargets.push(marker)
 
-      if (pin.id === 'vietnam' && pulseTexture) {
-        for (const phase of [0, Math.PI * 0.55]) {
+      if (pin.kind === 'primary' && pulseTexture) {
+        for (const phase of [0, Math.PI * 0.65]) {
           const pulse = new THREE.Sprite(
             new THREE.SpriteMaterial({
               map: pulseTexture,
@@ -480,9 +377,11 @@ export function GlobeIntro({ onContinue }: Props) {
               blending: THREE.AdditiveBlending,
             })
           )
+
+          pulse.position.copy(pos.clone().multiplyScalar(1.004))
           pulse.scale.setScalar(0.34)
-          pulse.position.set(0, 0, 0.01)
-          marker.add(pulse)
+
+          globeGroup.add(pulse)
           pulseSprites.push({ sprite: pulse, phase })
         }
       }
@@ -491,112 +390,219 @@ export function GlobeIntro({ onContinue }: Props) {
     const resize = () => {
       const width = container.clientWidth
       const height = container.clientHeight
+
+      const mobile = width < 720
+      const tablet = width >= 720 && width < 1120
+
+      camera.fov = mobile ? 40 : 34
       camera.aspect = width / Math.max(height, 1)
+
+      camera.position.set(
+        0,
+        mobile ? 0.12 : 0.02,
+        mobile ? 8.7 : tablet ? 8.4 : 8.2
+      )
+
       camera.updateProjectionMatrix()
+
+      const globeScale = mobile ? 0.68 : tablet ? 0.78 : 0.9
+
+      globeGroup.scale.setScalar(globeScale)
+
+      // Key fix: the globe is shifted right, but not far enough to get cropped.
+      globeGroup.position.set(
+        mobile ? 0 : tablet ? 0.72 : 1.25,
+        mobile ? -0.82 : -0.05,
+        0
+      )
+
+      controls.target.set(0, 0, 0)
+      controls.update()
+
       renderer.setSize(width, height, false)
-      composer.setSize(width, height)
-      if (bloomPass) bloomPass.setSize(width, height)
+
+      const details = [
+        `viewport: ${Math.round(width)}x${Math.round(height)}`,
+        `camera.z: ${camera.position.z.toFixed(2)}`,
+        `globe.scale: ${globeScale.toFixed(2)}`,
+        `globe.x: ${globeGroup.position.x.toFixed(2)}`,
+        `devicePixelRatio: ${(window.devicePixelRatio || 1).toFixed(2)}`,
+      ].join(' | ')
+
+      console.debug('[GlobeIntro] resize', details)
+
+      if (!disposed) setDebugDetails(details)
     }
 
     const animate = () => {
       frame = requestAnimationFrame(animate)
-      controls.update()
-      if (clouds) clouds.rotation.y += 0.0008
+
       const time = performance.now() * 0.0036
-      if (cloudMaterial) {
-        cloudMaterial.uniforms.uTime.value = time
-      }
-      if (borderMaterial && borderMaterial.opacity < BORDER_OPACITY) {
-        borderMaterial.opacity = Math.min(borderMaterial.opacity + 0.005, BORDER_OPACITY)
-      }
+
+      controls.update()
+
       for (const { sprite, phase } of pulseSprites) {
         const pulsePhase = (Math.sin(time + phase) + 1) / 2
-        sprite.scale.setScalar(0.26 + pulsePhase * 0.26)
+        sprite.scale.setScalar(0.27 + pulsePhase * 0.28)
+
         const material = sprite.material as THREE.SpriteMaterial
-        material.opacity = 0.16 + (1 - pulsePhase) * 0.46
+        material.opacity = 0.14 + (1 - pulsePhase) * 0.48
       }
+
       for (const target of clickTargets) {
-        if (target.userData.pinId === 'vietnam') {
-          const pulse = 1 + Math.sin(time) * 0.18
-          target.scale.setScalar(pulse)
-        } else if (target.userData.pinId === 'hcmc') {
-          target.scale.setScalar(1)
+        if (target.userData.primary) {
+          target.scale.setScalar(1 + Math.sin(time) * 0.12)
         }
       }
-      composer.render()
+
+      renderer.render(scene, camera)
     }
 
     const handlePointer = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect()
+
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+
       raycaster.setFromCamera(pointer, camera)
+
       const hit = raycaster.intersectObjects(clickTargets, false)[0]
-      if (hit?.object.userData.primary) onContinue()
+
+      if (hit?.object.userData.primary) {
+        console.info('[GlobeIntro] Primary pin clicked:', hit.object.userData.pinId)
+        onContinue()
+      }
     }
 
     resize()
     animate()
+    setLoaded(true)
+
     window.addEventListener('resize', resize)
     renderer.domElement.addEventListener('pointerdown', handlePointer)
 
     return () => {
       disposed = true
+
       cancelAnimationFrame(frame)
+
       window.removeEventListener('resize', resize)
       renderer.domElement.removeEventListener('pointerdown', handlePointer)
+
       controls.dispose()
+
       scene.traverse((object) => {
         const mesh = object as THREE.Mesh
         mesh.geometry?.dispose()
-        const material = mesh.material
-        if (Array.isArray(material)) material.forEach((m) => m.dispose())
-        else material?.dispose()
+
+        const material = mesh.material as THREE.Material | THREE.Material[] | undefined
+
+        if (Array.isArray(material)) {
+          material.forEach((m) => m.dispose())
+        } else {
+          material?.dispose()
+        }
       })
-      composer.dispose()
+
       renderer.dispose()
       renderer.domElement.remove()
+
+      console.info('[GlobeIntro] Renderer disposed')
     }
-  }, [onContinue])
+  }, [onContinue, debugMode])
 
   if (fallback) return <LandingScreen onContinue={onContinue} />
 
+  const showDebugPanel = debugMode || debugLines.length > 0
+
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-[#030712] text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_52%_44%,rgba(14,165,233,0.08),transparent_30%),linear-gradient(180deg,#030712_0%,#040816_55%,#02040d_100%)]" />
+    <div className="fixed inset-0 z-50 overflow-hidden bg-[#263751] text-white">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_68%_48%,rgba(14,165,233,0.13),transparent_34%),linear-gradient(180deg,#243752_0%,#263751_48%,#172338_100%)]" />
+
       <div
         ref={containerRef}
         className="absolute inset-0"
-        aria-label="Interactive globe intro"
+        aria-label="Interactive FloodWatch globe intro"
       />
 
       {!loaded && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-xs uppercase tracking-[0.28em] text-slate-400">loading earth data</div>
+          <div className="rounded-full border border-cyan-200/20 bg-slate-950/50 px-4 py-2 text-xs uppercase tracking-[0.28em] text-slate-300 backdrop-blur">
+            Loading earth data
+          </div>
         </div>
       )}
 
-      <div className="absolute left-6 top-6 sm:left-10 sm:top-10 max-w-sm">
-        <div className="text-xs uppercase tracking-[0.24em] text-cyan-200/75">FloodWatch HCMC</div>
-        <h1 className="mt-3 text-3xl sm:text-5xl font-semibold leading-tight tracking-normal">
+      <div className="absolute left-4 top-4 max-w-[370px] rounded-3xl border border-white/10 bg-slate-950/62 p-5 text-white shadow-2xl backdrop-blur sm:left-6 sm:top-6">
+        <div className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-200/80">
+          FloodWatch HCMC
+        </div>
+
+        <h1 className="mt-3 text-3xl font-black leading-tight tracking-tight sm:text-4xl">
           Flood risk before it reaches your route.
         </h1>
-        <p className="mt-4 text-sm sm:text-base leading-6 text-slate-300">
-          Click a red pilot pin to enter the dashboard for motorbike passability forecasting.
+
+        <p className="mt-4 text-sm leading-6 text-slate-300">
+          Predict motorbike passability before flooding reaches your route.
         </p>
+
+        <button
+          type="button"
+          onClick={onContinue}
+          className="mt-5 rounded-full bg-white px-5 py-2 text-sm font-black text-slate-950 shadow-xl transition hover:bg-cyan-50"
+        >
+          Open dashboard
+        </button>
       </div>
 
-      <button
-        type="button"
-        onClick={onContinue}
-        className="absolute right-5 top-5 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 shadow-xl backdrop-blur transition hover:bg-white/20"
-      >
-        Skip
-      </button>
-
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-cyan-200/20 bg-slate-950/55 px-4 py-2 text-xs text-slate-300 backdrop-blur">
-        Red pilot pins open the dashboard
+      <div className="absolute right-5 top-5">
+        <LangToggle />
       </div>
+
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-cyan-200/20 bg-slate-950/55 px-4 py-2 text-xs text-slate-300 shadow-xl backdrop-blur">
+        Drag the globe or click a red pilot pin
+      </div>
+
+      {showDebugPanel && (
+        <div className="absolute bottom-5 right-5 z-50 w-[min(420px,calc(100vw-40px))] rounded-2xl border border-amber-300/30 bg-slate-950/85 p-3 font-mono text-[11px] text-slate-200 shadow-2xl backdrop-blur">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="font-bold uppercase tracking-[0.18em] text-amber-200">
+              Globe console
+            </div>
+
+            <div className="text-slate-500">
+              {debugLines.length ? `${debugLines.length} issue(s)` : 'debug'}
+            </div>
+          </div>
+
+          {debugMode && (
+            <div className="mb-2 rounded-lg bg-white/5 p-2 text-cyan-100">
+              {debugDetails}
+            </div>
+          )}
+
+          {debugLines.length === 0 ? (
+            <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-200">
+              No globe errors. Browser console also logs resize/render details.
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {debugLines.map((line, index) => (
+                <div
+                  key={`${line.message}-${index}`}
+                  className={
+                    line.level === 'error'
+                      ? 'rounded-lg bg-red-500/15 p-2 text-red-100'
+                      : 'rounded-lg bg-amber-500/15 p-2 text-amber-100'
+                  }
+                >
+                  {line.message}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

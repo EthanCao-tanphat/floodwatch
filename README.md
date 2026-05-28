@@ -161,3 +161,66 @@ Best honest product statement:
 ```bash
 cd ~/floodwatch/api
 /usr/bin/python3 -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Frontend
+
+```bash
+cd ~/floodwatch/web
+npm install
+npm run dev
+```
+
+---
+
+## Production Deploy
+
+Deploy the backend first, then deploy the frontend with the backend URL.
+
+### Backend: Render
+
+This repo includes [render.yaml](./render.yaml) for a Docker web service.
+
+1. Push the repo to GitHub.
+2. Render → New → Blueprint → select this repo.
+3. Render will create `floodwatch-api` from `api/Dockerfile`.
+4. Add secrets in Render:
+   - `DASHSCOPE_API_KEY`
+   - `GRAPHHOPPER_API_KEY`
+   - `GOOGLE_MAPS_API_KEY`
+5. After deploy, copy the service URL, for example:
+
+```text
+https://floodwatch-api.onrender.com
+```
+
+The Dockerfile uses `${PORT:-7860}`, so it works on Render and still works on Hugging Face Spaces.
+
+### Frontend: Vercel
+
+This repo includes [vercel.json](./vercel.json), so Vercel can build from the monorepo root.
+
+1. Vercel → Add New Project → import the GitHub repo.
+2. Framework should resolve as Vite.
+3. Add environment variable:
+
+```text
+VITE_API_BASE_URL=https://floodwatch-api.onrender.com
+```
+
+4. Deploy.
+
+### Smoke Test
+
+After both deploys:
+
+```bash
+curl https://floodwatch-api.onrender.com/
+```
+
+Then open the Vercel URL and check:
+
+- map loads
+- API status shows online
+- route search returns route options
+- route evidence shows rain / river / hotspot / rider-report signals honestly

@@ -30,12 +30,17 @@ const LAYER_ROWS: {
   {
     key: 'hotspots',
     name: 'Historical flood hotspots',
-    detail: (status) => `${status?.flood_hotspots ?? 0} HCMC pilot hotspots loaded`,
+    detail: (status) => `${status?.flood_hotspots ?? 0} Vietnam historical/proxy hotspots loaded`,
   },
   {
     key: 'reports',
     name: 'Rider photo reports',
     detail: (status) => `${status?.active_reports ?? 0} active report(s) in this session`,
+  },
+  {
+    key: 'weatherAlerts',
+    name: 'Live rainfall watch',
+    detail: () => 'Open-Meteo forecast points refreshed with map evidence',
   },
 ]
 
@@ -88,7 +93,7 @@ export function LayersPanel({ status, layers, onToggleLayer, onClose }: Props) {
       </div>
 
       <div className="mt-3 rounded-xl bg-cyan-50 border border-cyan-100 p-3 text-xs text-cyan-900">
-        Hotspots and reports are map evidence. Route segments are the prediction result.
+        H markers are historical susceptibility, W markers are live rainfall forecast, and R markers are rider reports. Route segments are the prediction result.
       </div>
     </div>
   )

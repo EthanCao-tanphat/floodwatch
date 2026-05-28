@@ -1,5 +1,7 @@
 export type RiskLevel = 'low' | 'moderate' | 'high' | 'severe'
 export type ConfidenceLevel = 'low' | 'medium' | 'high'
+export type EvidenceState = 'live' | 'forecast' | 'susceptibility' | 'unavailable'
+export type TravelMode = 'motorbike' | 'car' | 'walk' | 'bicycle' | 'transit'
 
 export type Passability =
   | 'safe'
@@ -16,6 +18,10 @@ export interface Coord {
 export interface RiskEvidence {
   rainfall_mm: number
   tide_level_m: number | null
+  river_discharge_m3s?: number | null
+  river_discharge_ratio?: number | null
+  river_signal?: string | null
+  river_source?: string | null
   hotspot_proximity: number
   drainage_score: number | null
   report_count: number
@@ -46,6 +52,7 @@ export interface ForecastPoint {
   risk_level: RiskLevel
   passability: Passability
   confidence: ConfidenceLevel
+  evidence_state: EvidenceState
   evidence: RiskEvidence
 }
 
@@ -54,7 +61,28 @@ export interface ForecastResponse {
   lng: number
   district: string
   points: ForecastPoint[]
+  evidence_state: EvidenceState
   explanation: string
+}
+
+export interface RouteTimelinePoint {
+  minutes_ahead: number
+  flood_prob_max: number
+  flood_prob_avg: number
+
+  risk_level: RiskLevel
+  passability: Passability
+  confidence: ConfidenceLevel
+  evidence_state: EvidenceState
+
+  high_risk_segments: number
+  severe_segments: number
+
+  rainfall_mm_max: number
+  tide_level_m: number | null
+
+  dominant_signal: string
+  recommendation: string
 }
 
 export interface RouteSegment {
@@ -66,6 +94,7 @@ export interface RouteSegment {
   risk_level: RiskLevel
   passability: Passability
   confidence: ConfidenceLevel
+  evidence_state: EvidenceState
   evidence: RiskEvidence
 }
 
@@ -82,6 +111,7 @@ export interface AlternativeRoute {
 export interface RouteCandidate {
   id: string
   label: string
+  street_summary: string
   distance_km: number
   eta_min: number
   points: Coord[]
@@ -90,6 +120,7 @@ export interface RouteCandidate {
   overall_risk: RiskLevel
   overall_passability: Passability
   confidence: ConfidenceLevel
+  evidence_state: EvidenceState
 
   recommendation: string
   flood_prob_max: number
@@ -99,6 +130,13 @@ export interface RouteCandidate {
   is_safest: boolean
 
   tradeoff_summary: string
+
+  timeline: RouteTimelinePoint[]
+  future_peak_risk: RiskLevel
+  future_peak_min: number
+  future_risk_summary: string
+  route_score: number
+  travel_mode: TravelMode
 }
 
 export interface RouteResponse {
@@ -109,6 +147,7 @@ export interface RouteResponse {
   overall_risk: RiskLevel
   overall_passability: Passability
   confidence: ConfidenceLevel
+  evidence_state: EvidenceState
 
   recommendation: string
   rerouted?: boolean
@@ -121,6 +160,13 @@ export interface RouteResponse {
   safest_route_id?: string | null
 
   coverage?: CoverageInfo | null
+
+  timeline?: RouteTimelinePoint[]
+  future_peak_risk?: RiskLevel
+  future_peak_min?: number
+  future_risk_summary?: string
+  route_score?: number
+  travel_mode?: TravelMode
 }
 
 export type DepthClass = 'dry' | 'ankle' | 'knee' | 'impassable'
@@ -149,15 +195,54 @@ export interface GeocodeResult {
   lng: number
   source: string
   importance?: number
+  place_id?: string | null
+  types?: string[]
+}
+
+export type SearchProvider = 'google' | 'local' | 'nominatim' | 'coordinate'
+
+export interface SearchSuggestion {
+  place_id: string
+  provider: SearchProvider
+
+  title: string
+  subtitle: string
+  description: string
+
+  lat?: number | null
+  lng?: number | null
+
+  needs_resolve: boolean
+  source: string
+}
+
+export interface PlaceResolveResponse {
+  place_id: string
+  provider: SearchProvider
+
+  title: string
+  subtitle: string
+  label: string
+
+  lat: number
+  lng: number
+
+  source: string
 }
 
 export interface MapHotspot {
+  id: string
   name: string
+  city_id: string
+  city_name: string
   lat: number
   lng: number
   historical_freq: number
   source: string
   coord_note?: string | null
+  evidence_type: 'historical_hotspot'
+  evidence_state: 'susceptibility'
+  data_quality: 'curated_seed' | 'verified' | string
 }
 
 export interface RiderReport {
@@ -169,11 +254,29 @@ export interface RiderReport {
   confidence: number
   photo_confirmed: boolean
   source: string
+  evidence_type?: 'live_report'
+  evidence_state?: 'live'
+}
+
+export interface WeatherAlert {
+  id: string
+  name: string
+  lat: number
+  lng: number
+  rain_30m_mm: number
+  rain_90m_mm: number
+  precip_probability_pct: number
+  alert_level: 'watch' | 'moderate' | 'high' | string
+  evidence_type: 'rainfall_forecast'
+  evidence_state: 'forecast'
+  source: string
+  updated_at: number
 }
 
 export interface MapEvidenceResponse {
   hotspots: MapHotspot[]
   reports: RiderReport[]
+  weather_alerts?: WeatherAlert[]
 }
 
 export interface LayerSettings {
@@ -182,6 +285,7 @@ export interface LayerSettings {
   segmentNumbers: boolean
   hotspots: boolean
   reports: boolean
+  weatherAlerts: boolean
 }
 
 export type LayerKey = keyof LayerSettings

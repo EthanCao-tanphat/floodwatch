@@ -21,7 +21,7 @@ SEVERITY_BONUS = {
     "slow_pass": 0.08,
     "avoid_for_motorbikes": 0.16,
     "impassable": 0.25,
-    "unknown": 0.04,
+    "unknown": 0.00,
 }
 
 
@@ -97,8 +97,21 @@ def report_evidence_for_segment(
             "risk_bonus": 0.0,
         }
 
-    max_bonus = max(SEVERITY_BONUS.get(r.get("passability", "unknown"), 0.04) for r in nearby)
-    count_bonus = min(0.12, len(nearby) * 0.03)
+    risk_bearing = [
+        r
+        for r in nearby
+        if SEVERITY_BONUS.get(r.get("passability", "unknown"), 0.0) > 0
+    ]
+
+    if not risk_bearing:
+        return {
+            "report_count": len(nearby),
+            "photo_confirmed": True,
+            "risk_bonus": 0.0,
+        }
+
+    max_bonus = max(SEVERITY_BONUS.get(r.get("passability", "unknown"), 0.0) for r in risk_bearing)
+    count_bonus = min(0.12, len(risk_bearing) * 0.03)
 
     return {
         "report_count": len(nearby),

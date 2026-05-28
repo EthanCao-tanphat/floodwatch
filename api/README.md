@@ -46,6 +46,18 @@ curl -X POST http://localhost:8000/route/safe \
   }'
 ```
 
+## Deploy To Render
+
+The repo root includes `render.yaml`. Use Render Blueprint deploy from the
+GitHub repo and set these secrets:
+
+- `DASHSCOPE_API_KEY`
+- `GRAPHHOPPER_API_KEY`
+- `GOOGLE_MAPS_API_KEY`
+
+The Dockerfile uses `${PORT:-7860}` so Render can inject `PORT`, while local
+Docker/Hugging Face can still default to `7860`.
+
 ## Deploy To Hugging Face Spaces
 
 1. Create a new Space, SDK = Docker.

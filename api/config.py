@@ -18,6 +18,9 @@ VN_LNG_MIN, VN_LNG_MAX = 102.0, 110.0
 # Open-Meteo forecast endpoint (no key needed)
 OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 
+# Open-Meteo Flood API endpoint backed by GloFAS river-discharge forecasts.
+OPENMETEO_FLOOD_URL = "https://flood-api.open-meteo.com/v1/flood"
+
 # Tiered coverage. See docs/architecture.md for the rationale.
 #
 # Tier 1 — full multi-feature fusion (rainfall + tide + drainage + historical hotspots)

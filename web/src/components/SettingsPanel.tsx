@@ -33,8 +33,8 @@ export function SettingsPanel({ apiOk, status, onClose }: Props) {
         </div>
 
         <div className="flex justify-between rounded-xl bg-slate-50 p-3">
-          <span className="text-slate-500">Pilot city</span>
-          <span className="font-bold">{status?.pilot_city ?? 'HCMC'}</span>
+          <span className="text-slate-500">Coverage</span>
+          <span className="font-bold">{status?.pilot_city ?? 'Vietnam tiers'}</span>
         </div>
 
         <div className="flex justify-between rounded-xl bg-slate-50 p-3">
@@ -44,13 +44,13 @@ export function SettingsPanel({ apiOk, status, onClose }: Props) {
 
         <div className="flex justify-between rounded-xl bg-slate-50 p-3">
           <span className="text-slate-500">Vehicle mode</span>
-          <span className="font-bold">Motorbike</span>
+          <span className="font-bold">Selected in routes</span>
         </div>
       </div>
 
       <div className="mt-3 rounded-xl bg-slate-900 text-white p-3 text-xs">
-        FloodWatch is currently configured as an HCMC pilot demo for flood-aware
-        motorbike routing.
+        FloodWatch uses tiered Vietnam coverage: strongest prediction in HCMC,
+        partial city evidence where seeded, and rainfall/report warnings elsewhere.
       </div>
     </div>
   )
