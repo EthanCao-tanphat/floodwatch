@@ -5,9 +5,10 @@ segment-by-segment, picks the safest route, and returns rejected alternatives
 for dimmed/dashed display on the frontend map.
 """
 
+import asyncio
 import math
 import sys
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 from models import (
     AlternativeRoute,
@@ -37,6 +38,8 @@ WARNING_RAIN_MM = 10.0
 TIDE_PRESSURE_M = 1.4
 REROUTE_SCORE_DELTA = 0.05
 REROUTE_RISK_DELTA = 0.10
+ROUTE_SCORE_SEGMENTS = 4
+ROUTE_FORECAST_CONCURRENCY = 4
 
 FALLBACK_SPEED_KMH = {
     "motorbike": 25,
@@ -367,7 +370,15 @@ def _route_timeline_score(timeline: List[RouteTimelinePoint]) -> float:
     )
 
 
-async def _forecast_segment_midpoint(start: Point, end: Point) -> List[ForecastPoint]:
+ForecastCache = Dict[Tuple[float, float], asyncio.Task[List[ForecastPoint]]]
+
+
+async def _forecast_segment_midpoint(
+    start: Point,
+    end: Point,
+    forecast_cache: ForecastCache,
+    semaphore: asyncio.Semaphore,
+) -> List[ForecastPoint]:
     """Score one road segment using the forecast at its midpoint.
 
     Returns multiple future points: now, +30, +60, +90.
@@ -375,16 +386,29 @@ async def _forecast_segment_midpoint(start: Point, end: Point) -> List[ForecastP
 
     mid_lat = (start[0] + end[0]) / 2
     mid_lng = (start[1] + end[1]) / 2
+    cache_key = (round(mid_lat, 2), round(mid_lng, 2))
 
-    try:
-        forecast = await forecast_segment(mid_lat, mid_lng, horizon_min=90)
-    except Exception as exc:
-        return _fallback_forecast_points(str(exc))
+    cached = forecast_cache.get(cache_key)
 
-    if not forecast.points:
-        return _fallback_forecast_points("forecast returned no points")
+    if cached is not None:
+        return await cached
 
-    return forecast.points
+    async def load() -> List[ForecastPoint]:
+        try:
+            async with semaphore:
+                forecast = await forecast_segment(mid_lat, mid_lng, horizon_min=90)
+        except Exception as exc:
+            return _fallback_forecast_points(str(exc))
+
+        if not forecast.points:
+            return _fallback_forecast_points("forecast returned no points")
+
+        return forecast.points
+
+    task = asyncio.create_task(load())
+    forecast_cache[cache_key] = task
+
+    return await task
 
 def _aggregate_route_timeline(
     segment_forecasts: List[List[ForecastPoint]],
@@ -518,7 +542,9 @@ def _aggregate_route_timeline(
 
 async def _score_route(
     road_points: List[Point],
-    n_segments: int = 6,
+    n_segments: int = ROUTE_SCORE_SEGMENTS,
+    forecast_cache: ForecastCache | None = None,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> Tuple[
     List[RouteSegment],
     float,
@@ -543,6 +569,8 @@ async def _score_route(
     """
 
     chunks = sample_route_points(road_points, n_segments=n_segments)
+    forecast_cache = forecast_cache if forecast_cache is not None else {}
+    semaphore = semaphore if semaphore is not None else asyncio.Semaphore(ROUTE_FORECAST_CONCURRENCY)
 
     if not chunks:
         fallback_peak = RouteTimelinePoint(
@@ -557,10 +585,12 @@ async def _score_route(
         )
         return [], 0.0, "unknown", "low", [fallback_peak], fallback_peak, 1.0, "unavailable"
 
-    segment_forecasts = []
-
-    for start, end, _chunk in chunks:
-        segment_forecasts.append(await _forecast_segment_midpoint(start, end))
+    segment_forecasts = await asyncio.gather(
+        *[
+            _forecast_segment_midpoint(start, end, forecast_cache, semaphore)
+            for start, end, _chunk in chunks
+        ]
+    )
 
     report_summaries = [
         report_evidence_for_segment(start, end)
@@ -905,6 +935,8 @@ async def find_safe_route(
         max_paths=3,
         travel_mode=travel_mode,
     )
+    forecast_cache: ForecastCache = {}
+    forecast_semaphore = asyncio.Semaphore(ROUTE_FORECAST_CONCURRENCY)
 
     # Fallback: straight-line route if GraphHopper is unavailable.
     if not roads:
@@ -921,7 +953,9 @@ async def find_safe_route(
             evidence_state,
         ) = await _score_route(
             road_points,
-            n_segments=6,
+            n_segments=ROUTE_SCORE_SEGMENTS,
+            forecast_cache=forecast_cache,
+            semaphore=forecast_semaphore,
         )
 
         distance_km = _haversine_km(from_.lat, from_.lng, to.lat, to.lng)
@@ -979,10 +1013,17 @@ async def find_safe_route(
             travel_mode=travel_mode,
         )
 
-    scored = []
-
-    for road in roads:
-        scored.append(await _score_route(road["points"], n_segments=6))
+    scored = await asyncio.gather(
+        *[
+            _score_route(
+                road["points"],
+                n_segments=ROUTE_SCORE_SEGMENTS,
+                forecast_cache=forecast_cache,
+                semaphore=forecast_semaphore,
+            )
+            for road in roads
+        ]
+    )
 
     candidates_raw = []
 

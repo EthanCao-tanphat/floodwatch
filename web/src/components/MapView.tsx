@@ -890,15 +890,12 @@ export function MapView({
     if (!map) return
 
     const coords: Coord[] = []
+    const hasRouteGeometry = segments.length > 0 || alternatives.length > 0
+
+    if (!hasRouteGeometry) return
 
     segments.forEach((s) => coords.push(...coordsForSegment(s)))
     alternatives.forEach((a) => coords.push(...a.points))
-
-    if (coords.length === 0) {
-      if (from && to) coords.push(from, to)
-      else if (from) coords.push(from)
-      else if (to) coords.push(to)
-    }
 
     if (coords.length === 0) return
 
@@ -906,7 +903,7 @@ export function MapView({
       map.flyTo({
         center: [coords[0].lng, coords[0].lat],
         zoom: Math.max(map.getZoom(), 14),
-        duration: 900,
+        duration: 200,
         essential: true,
       })
       return
@@ -919,9 +916,9 @@ export function MapView({
     map.fitBounds(bounds, {
       padding: { top: 90, right: 460, bottom: 80, left: 110 },
       maxZoom: 15,
-      duration: 900,
+      duration: 250,
     })
-  }, [from, to, segments, alternatives])
+  }, [segments, alternatives])
 
   return (
     <div className="relative h-full w-full">
