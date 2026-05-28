@@ -84,6 +84,14 @@ function evidenceNote(state: EvidenceState): string | null {
   return null
 }
 
+function travelModeTitle(result: RouteResponse): string {
+  if (result.travel_mode === 'car') return 'Car'
+  if (result.travel_mode === 'walk') return 'Walk'
+  if (result.travel_mode === 'bicycle') return 'Bicycle'
+  if (result.travel_mode === 'transit') return 'Transit'
+  return 'Two-wheeler'
+}
+
 export function RouteResults({ result, onClose }: Props) {
   const state = evidenceState(result)
   const segmentScores = result.segments
@@ -102,12 +110,59 @@ export function RouteResults({ result, onClose }: Props) {
       segment.passability === 'impassable'
   ).length
 
+  function openGoogleMaps() {
+    const first = result.segments[0]?.start
+    const last = result.segments[result.segments.length - 1]?.end
+
+    if (!first || !last) return
+
+    const url = new URL('https://www.google.com/maps/dir/')
+    url.pathname = `/maps/dir/${first.lat},${first.lng}/${last.lat},${last.lng}`
+    window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  }
+
+  async function shareRoute() {
+    const text = `FloodWatch route: ${result.eta_min} min, ${result.distance_km} km. ${result.recommendation}`
+
+    if (navigator.share) {
+      await navigator.share({ title: 'FloodWatch route', text })
+      return
+    }
+
+    await navigator.clipboard?.writeText(text)
+  }
+
+  function saveRoute() {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem('floodwatch_saved_routes_v1') || '[]')
+      const next = [
+        {
+          saved_at: Date.now(),
+          eta_min: result.eta_min,
+          distance_km: result.distance_km,
+          risk: result.overall_risk,
+          evidence_state: result.evidence_state,
+          recommendation: result.recommendation,
+        },
+        ...(Array.isArray(saved) ? saved : []),
+      ].slice(0, 12)
+
+      window.localStorage.setItem('floodwatch_saved_routes_v1', JSON.stringify(next))
+    } catch {
+      // Saving is a convenience only; routing should not fail if storage is blocked.
+    }
+  }
+
   return (
-    <div className="mt-3 overflow-hidden rounded-xl bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.16)] ring-1 ring-slate-200">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+    <div className="mt-3 overflow-hidden rounded-t-[28px] bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.16)] ring-1 ring-slate-200 sm:rounded-xl">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-4">
         <div>
-          <div className="text-xs font-extrabold uppercase tracking-wide text-slate-400">
+          <div className="hidden text-xs font-extrabold uppercase tracking-wide text-slate-400 sm:block">
             Selected route
+          </div>
+
+          <div className="text-3xl font-black tracking-tight text-slate-950 sm:hidden">
+            {travelModeTitle(result)}
           </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -137,7 +192,95 @@ export function RouteResults({ result, onClose }: Props) {
         </button>
       </div>
 
-      <div className="space-y-3 px-4 py-4">
+      <div className="flex gap-3 overflow-x-auto border-b border-slate-100 px-4 py-3 sm:hidden">
+        <button
+          type="button"
+          onClick={openGoogleMaps}
+          className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-cyan-700 px-5 text-sm font-extrabold text-white shadow-lg shadow-cyan-700/20"
+        >
+          <ArrowIcon className="h-5 w-5" />
+          Start
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void shareRoute()}
+          className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-cyan-50 px-5 text-sm font-extrabold text-cyan-800 ring-1 ring-cyan-100"
+        >
+          <ShareIcon className="h-5 w-5" />
+          Share
+        </button>
+
+        <button
+          type="button"
+          onClick={saveRoute}
+          className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-slate-50 px-5 text-sm font-extrabold text-slate-700 ring-1 ring-slate-100"
+        >
+          <BookmarkIcon className="h-5 w-5" />
+          Save
+        </button>
+      </div>
+
+      <div className="space-y-3 px-4 py-4 sm:hidden">
+        <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm leading-relaxed text-sky-950 ring-1 ring-sky-100">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-black uppercase tracking-wide text-sky-700/70">
+                Flood evidence
+              </div>
+              <div className="mt-1 font-bold">{result.recommendation}</div>
+            </div>
+
+            <div className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-black text-sky-700 ring-1 ring-sky-100">
+              {primaryMetricValue(state, maxRisk)}
+            </div>
+          </div>
+
+          {evidenceNote(state) && (
+            <div className="mt-2 text-xs font-semibold text-sky-800/80">
+              {evidenceNote(state)}
+            </div>
+          )}
+        </div>
+
+        <details className="rounded-2xl bg-white ring-1 ring-slate-200">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-extrabold text-slate-800">
+            Route details
+          </summary>
+
+          <div className="space-y-3 border-t border-slate-100 px-4 py-4">
+            <div className="grid grid-cols-3 gap-2">
+              <MetricCard label={primaryMetricLabel(state)} value={primaryMetricValue(state, maxRisk)} />
+              <MetricCard label="Risky seg." value={String(riskySegments)} />
+              <MetricCard label="Confidence" value={result.confidence} />
+            </div>
+
+            <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-100">
+              <div className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-400">
+                Route status
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
+                  <div className="text-xs font-bold text-slate-400">Passability</div>
+                  <div className="mt-1 font-extrabold text-slate-900">
+                    {passabilityLabel[result.overall_passability]}
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
+                  <div className="text-xs font-bold text-slate-400">Segments</div>
+                  <div className="mt-1 font-extrabold text-slate-900">
+                    {result.segments.length}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div className="hidden space-y-3 px-4 py-4 sm:block">
         <div className="rounded-lg bg-sky-50 px-4 py-3 text-sm leading-relaxed text-sky-950 ring-1 ring-sky-100">
           <div className="font-extrabold">Recommendation</div>
           <div className="mt-1">{result.recommendation}</div>
@@ -221,6 +364,35 @@ export function RouteResults({ result, onClose }: Props) {
         </details>
       </div>
     </div>
+  )
+}
+
+function ArrowIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
+      <path d="M12 19V5" strokeLinecap="round" />
+      <path d="m5 12 7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ShareIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="m8.6 10.5 6.8-4" strokeLinecap="round" />
+      <path d="m8.6 13.5 6.8 4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function BookmarkIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
+      <path d="M6 4h12v17l-6-3-6 3V4Z" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 

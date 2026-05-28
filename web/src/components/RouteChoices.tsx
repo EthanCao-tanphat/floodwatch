@@ -102,7 +102,7 @@ export function RouteChoices({
   if (!routes.length) return null
 
   return (
-    <div className="overflow-hidden rounded-xl bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.18)] ring-1 ring-slate-200">
+    <div className="hidden overflow-hidden rounded-xl bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.18)] ring-1 ring-slate-200 sm:block">
       <div className="border-b border-slate-100 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>

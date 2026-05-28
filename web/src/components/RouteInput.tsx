@@ -546,12 +546,12 @@ export function RouteInput({
   }
 
   return (
-    <div className="overflow-visible rounded-xl border border-slate-200 bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.18)]">
+    <div className="overflow-visible rounded-t-[28px] border border-slate-200 bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.18)] sm:rounded-xl">
       <div className="border-b border-slate-100 px-5 py-4">
         <TravelModePicker value={travelMode} onChange={onSetTravelMode} />
       </div>
 
-      <div className="space-y-4 px-5 py-5">
+      <div className="space-y-3 px-4 py-4 sm:space-y-4 sm:px-5 sm:py-5">
         <FloodSituation status={status} />
         {renderField('from')}
         {renderField('to')}
@@ -608,15 +608,19 @@ function FloodSituation({ status }: { status: StatusResponse | null }) {
           : 'No live flood reports'
 
   return (
-    <div className="rounded-lg bg-slate-50 px-4 py-3 ring-1 ring-slate-100">
+    <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-100 sm:rounded-lg">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-black uppercase tracking-wide text-slate-400">
-            Current flooding situation
+            Current flooding
           </div>
 
           <div className="mt-1 text-sm font-extrabold text-slate-900">
             {title}
+          </div>
+
+          <div className="mt-1 text-xs font-bold text-slate-500 sm:hidden">
+            Rain {rain.toFixed(1)}mm · Tide {tide.toFixed(2)}m · Reports {reports}
           </div>
         </div>
 
@@ -625,7 +629,7 @@ function FloodSituation({ status }: { status: StatusResponse | null }) {
         </span>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+      <div className="mt-3 hidden grid-cols-3 gap-2 text-xs sm:grid">
         <SituationMetric label="Rain" value={`${rain.toFixed(1)}mm`} />
         <SituationMetric label="Tide" value={`${tide.toFixed(2)}m`} />
         <SituationMetric label="Reports" value={String(reports)} />
@@ -652,17 +656,17 @@ function TravelModePicker({
 }) {
   return (
     <div>
-      <div className="text-base font-extrabold tracking-tight text-slate-950">
+      <div className="text-sm font-extrabold uppercase tracking-wide text-slate-400 sm:text-base sm:normal-case sm:tracking-tight sm:text-slate-950">
         Directions
       </div>
 
-      <div className="mt-3 grid grid-cols-5 gap-1 rounded-lg bg-slate-100 p-1">
+      <div className="mt-2 grid grid-cols-5 gap-1 rounded-2xl bg-slate-100 p-1 sm:mt-3 sm:rounded-lg">
         {TRAVEL_MODES.map((mode) => (
           <button
             key={mode.id}
             type="button"
             onClick={() => onChange(mode.id)}
-            className={`min-w-0 rounded-md px-1.5 py-2 text-center transition ${
+            className={`min-w-0 rounded-xl px-1 py-2 text-center transition sm:rounded-md sm:px-1.5 ${
               value === mode.id
                 ? 'bg-white text-slate-950 shadow-sm'
                 : 'text-slate-500 hover:bg-white/60'

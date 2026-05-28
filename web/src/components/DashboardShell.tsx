@@ -76,9 +76,9 @@ export function DashboardShell({
       {children}
 
       {/* Google Maps-style top control row */}
-      <div className="pointer-events-none fixed left-0 right-0 top-0 z-50 px-3 pb-3 safe-top sm:px-4 sm:pb-4">
-        <div className="pointer-events-auto flex max-w-full items-center gap-3 overflow-x-auto pb-2 pr-4">
-          <div className="flex h-[52px] w-[min(480px,calc(100vw-28px))] shrink-0 items-center gap-2 rounded-2xl bg-white px-2 py-1 shadow-[0_12px_32px_rgba(15,23,42,0.20)] ring-1 ring-slate-200">
+      <div className="pointer-events-none fixed left-0 right-0 top-0 z-50 px-3 pb-2 safe-top sm:px-4 sm:pb-4">
+        <div className="pointer-events-auto flex max-w-full flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 sm:overflow-x-auto sm:pb-2 sm:pr-4">
+          <div className="flex h-[58px] w-full shrink-0 items-center gap-2 rounded-[22px] bg-white px-2 py-1 shadow-[0_12px_32px_rgba(15,23,42,0.22)] ring-1 ring-slate-200 sm:h-[52px] sm:w-[min(480px,calc(100vw-28px))] sm:rounded-2xl">
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
@@ -96,11 +96,11 @@ export function DashboardShell({
               <SearchIcon className="h-5 w-5 shrink-0 text-slate-500" />
 
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-slate-800 sm:text-base">
+                <div className="truncate text-lg font-semibold text-slate-800 sm:text-base">
                   Search places or routes
                 </div>
 
-                <div className="hidden truncate text-xs text-slate-500 sm:block">
+                <div className="truncate text-xs font-medium text-slate-500">
                   Address, map pin, or coordinates
                 </div>
               </div>
@@ -116,19 +116,21 @@ export function DashboardShell({
             </button>
           </div>
 
-          {TOP_NAV_ITEMS.map((item) => (
-            <ToolbarChip
-              key={item.id}
-              item={item}
-              label={t[item.labelKey]}
-              active={active === item.id}
-              onClick={() => onSelectNav(item.id)}
-            />
-          ))}
+          <div className="hidden max-w-full items-center gap-2 overflow-x-auto pb-1 pr-2 sm:contents">
+            {TOP_NAV_ITEMS.map((item) => (
+              <ToolbarChip
+                key={item.id}
+                item={item}
+                label={t[item.labelKey]}
+                active={active === item.id}
+                onClick={() => onSelectNav(item.id)}
+              />
+            ))}
 
-          <div className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-white px-4 text-sm font-semibold text-slate-700 shadow-[0_10px_30px_rgba(15,23,42,0.16)] ring-1 ring-slate-200">
-            <span className={`h-2.5 w-2.5 rounded-full ${apiDot}`} />
-            {apiStatus}
+            <div className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-white px-4 text-sm font-semibold text-slate-700 shadow-[0_10px_30px_rgba(15,23,42,0.16)] ring-1 ring-slate-200">
+              <span className={`h-2.5 w-2.5 rounded-full ${apiDot}`} />
+              {apiStatus}
+            </div>
           </div>
         </div>
       </div>

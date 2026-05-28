@@ -168,6 +168,52 @@ function makeWeatherMarker(color: string): HTMLElement {
   return el
 }
 
+function makeRouteTimeMarker({
+  label,
+  selected,
+  risk,
+}: {
+  label: string
+  selected: boolean
+  risk: string
+}): HTMLElement {
+  const el = document.createElement('button')
+  const riskAccent =
+    risk === 'severe'
+      ? '#dc2626'
+      : risk === 'high'
+        ? '#f97316'
+        : risk === 'moderate'
+          ? '#f59e0b'
+          : '#0ea5e9'
+
+  el.type = 'button'
+  el.textContent = label
+  el.style.cssText = `
+    min-width: 64px;
+    height: 34px;
+    border: 0;
+    border-radius: 10px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: ${selected ? '#0f6bff' : '#ffffff'};
+    color: ${selected ? '#ffffff' : '#334155'};
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1;
+    box-shadow: 0 6px 18px rgba(15,23,42,0.24);
+    outline: ${selected ? '2px solid rgba(255,255,255,0.95)' : `2px solid ${riskAccent}`};
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: manipulation;
+  `
+
+  return el
+}
+
 function evidenceOffsetMap(
   map: maplibregl.Map,
   points: Array<{ key: string; lat: number; lng: number }>
@@ -274,7 +320,7 @@ function EvidenceLegend({
   if (!showHotspots && !showReports && !showWeather) return null
 
   return (
-    <div className="pointer-events-auto fixed bottom-24 left-3 z-[9999] flex max-w-[calc(100vw-24px)] flex-col-reverse items-start gap-2 sm:bottom-6">
+    <div className="pointer-events-auto fixed bottom-[152px] left-3 z-40 flex max-w-[calc(100vw-24px)] flex-col-reverse items-start gap-2 sm:bottom-6">
       <button
         type="button"
         onPointerDown={(event) => {
@@ -393,6 +439,7 @@ export function MapView({
 
   const pointMarkersRef = useRef<Marker[]>([])
   const segmentMarkersRef = useRef<Marker[]>([])
+  const routeLabelMarkersRef = useRef<Marker[]>([])
   const evidenceMarkersRef = useRef<Marker[]>([])
   const clickHandlerAttachedRef = useRef(false)
   const onSelectRouteRef = useRef<Props['onSelectRoute']>(undefined)
@@ -455,6 +502,7 @@ export function MapView({
       map.off('zoomend', updateMarkerLayout)
       pointMarkersRef.current.forEach((m) => m.remove())
       segmentMarkersRef.current.forEach((m) => m.remove())
+      routeLabelMarkersRef.current.forEach((m) => m.remove())
       evidenceMarkersRef.current.forEach((m) => m.remove())
       map.remove()
       mapRef.current = null
@@ -762,6 +810,52 @@ export function MapView({
     const map = mapRef.current
     if (!map) return
 
+    routeLabelMarkersRef.current.forEach((m) => m.remove())
+    routeLabelMarkersRef.current = []
+
+    if (!activeLayers.alternatives && !activeLayers.routeSegments) return
+    if (!routeOptions.length) return
+
+    routeOptions.forEach((route) => {
+      if (!route.points.length) return
+
+      const mid = route.points[Math.floor(route.points.length / 2)]
+      if (!mid) return
+
+      const selected = route.id === selectedRouteId
+      const el = makeRouteTimeMarker({
+        label: `${route.eta_min} min`,
+        selected,
+        risk: route.overall_risk,
+      })
+
+      el.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onSelectRouteRef.current?.(route.id)
+      })
+
+      const marker = new maplibregl.Marker({
+        element: el,
+        anchor: 'center',
+        offset: selected ? [0, -18] : [0, 18],
+      })
+        .setLngLat([mid.lng, mid.lat])
+        .addTo(map)
+
+      routeLabelMarkersRef.current.push(marker)
+    })
+  }, [
+    routeOptions,
+    selectedRouteId,
+    activeLayers.alternatives,
+    activeLayers.routeSegments,
+  ])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
     evidenceMarkersRef.current.forEach((m) => m.remove())
     evidenceMarkersRef.current = []
 
@@ -913,8 +1007,12 @@ export function MapView({
 
     coords.forEach((c) => bounds.extend([c.lng, c.lat]))
 
+    const isMobile = window.matchMedia('(max-width: 640px)').matches
+
     map.fitBounds(bounds, {
-      padding: { top: 90, right: 460, bottom: 80, left: 110 },
+      padding: isMobile
+        ? { top: 156, right: 28, bottom: 300, left: 28 }
+        : { top: 90, right: 460, bottom: 80, left: 110 },
       maxZoom: 15,
       duration: 0,
     })
@@ -930,7 +1028,7 @@ export function MapView({
         </div>
       )}
 
-      <div className="pointer-events-auto absolute right-3 top-24 z-40 flex flex-col overflow-hidden rounded-xl shadow-[0_10px_24px_rgba(15,23,42,0.22)]">
+      <div className="pointer-events-auto absolute right-3 top-[172px] z-40 flex flex-col overflow-hidden rounded-xl shadow-[0_10px_24px_rgba(15,23,42,0.22)] sm:top-24">
         <MapControlButton
           label="+"
           ariaLabel="Zoom in"
@@ -943,7 +1041,7 @@ export function MapView({
         />
       </div>
 
-      <div className="pointer-events-auto absolute right-3 top-[218px] z-40 overflow-hidden rounded-xl shadow-[0_10px_24px_rgba(15,23,42,0.18)]">
+      <div className="pointer-events-auto absolute bottom-[156px] right-4 z-40 overflow-hidden rounded-[22px] shadow-[0_10px_24px_rgba(15,23,42,0.18)] sm:bottom-auto sm:right-3 sm:top-[218px] sm:rounded-xl">
         <MapControlButton
           label="◎"
           ariaLabel="Use current location"
