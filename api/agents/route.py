@@ -29,10 +29,13 @@ from models import (
 from agents.forecast import forecast_segment
 from services.graphhopper import fetch_road_routes, sample_route_points
 from services.coverage_tiers import coverage_for_route
+from services.openmeteo import fetch_rainfall, fetch_river_discharge, river_discharge_signal
 from services.reports import report_evidence_for_segment
+from services.tides import get_tide_level
 
 
 Point = Tuple[float, float]  # (lat, lng)
+RouteForecastInputs = Tuple[Dict, Dict, float]
 ACTIVE_RAIN_MM = 5.0
 WARNING_RAIN_MM = 10.0
 TIDE_PRESSURE_M = 1.4
@@ -373,11 +376,38 @@ def _route_timeline_score(timeline: List[RouteTimelinePoint]) -> float:
 ForecastCache = Dict[Tuple[float, float], asyncio.Task[List[ForecastPoint]]]
 
 
+async def _route_forecast_inputs(from_: Coord, to: Coord) -> RouteForecastInputs:
+    """Fetch live/model weather once for the route corridor.
+
+    Segment scoring still varies by hotspot/drainage/report evidence, but this
+    keeps one route request from making many external weather calls.
+    """
+
+    mid_lat = (from_.lat + to.lat) / 2
+    mid_lng = (from_.lng + to.lng) / 2
+
+    rainfall_data = await fetch_rainfall(mid_lat, mid_lng, hours_ahead=3)
+
+    try:
+        river_data = river_discharge_signal(
+            await fetch_river_discharge(mid_lat, mid_lng, forecast_days=7)
+        )
+    except Exception:
+        river_data = {
+            "river_discharge_m3s": None,
+            "river_discharge_ratio": None,
+            "river_signal": "unavailable",
+        }
+
+    return rainfall_data, river_data, get_tide_level()
+
+
 async def _forecast_segment_midpoint(
     start: Point,
     end: Point,
     forecast_cache: ForecastCache,
     semaphore: asyncio.Semaphore,
+    forecast_inputs: RouteForecastInputs | None,
 ) -> List[ForecastPoint]:
     """Score one road segment using the forecast at its midpoint.
 
@@ -396,7 +426,18 @@ async def _forecast_segment_midpoint(
     async def load() -> List[ForecastPoint]:
         try:
             async with semaphore:
-                forecast = await forecast_segment(mid_lat, mid_lng, horizon_min=90)
+                if forecast_inputs is None:
+                    forecast = await forecast_segment(mid_lat, mid_lng, horizon_min=90)
+                else:
+                    rainfall_data, river_data, tide_now = forecast_inputs
+                    forecast = await forecast_segment(
+                        mid_lat,
+                        mid_lng,
+                        horizon_min=90,
+                        rainfall_data=rainfall_data,
+                        river_data=river_data,
+                        tide_now=tide_now,
+                    )
         except Exception as exc:
             return _fallback_forecast_points(str(exc))
 
@@ -545,6 +586,7 @@ async def _score_route(
     n_segments: int = ROUTE_SCORE_SEGMENTS,
     forecast_cache: ForecastCache | None = None,
     semaphore: asyncio.Semaphore | None = None,
+    forecast_inputs: RouteForecastInputs | None = None,
 ) -> Tuple[
     List[RouteSegment],
     float,
@@ -587,7 +629,13 @@ async def _score_route(
 
     segment_forecasts = await asyncio.gather(
         *[
-            _forecast_segment_midpoint(start, end, forecast_cache, semaphore)
+            _forecast_segment_midpoint(
+                start,
+                end,
+                forecast_cache,
+                semaphore,
+                forecast_inputs,
+            )
             for start, end, _chunk in chunks
         ]
     )
@@ -937,6 +985,12 @@ async def find_safe_route(
     )
     forecast_cache: ForecastCache = {}
     forecast_semaphore = asyncio.Semaphore(ROUTE_FORECAST_CONCURRENCY)
+    forecast_inputs: RouteForecastInputs | None = None
+
+    try:
+        forecast_inputs = await _route_forecast_inputs(from_, to)
+    except Exception:
+        forecast_inputs = None
 
     # Fallback: straight-line route if GraphHopper is unavailable.
     if not roads:
@@ -956,6 +1010,7 @@ async def find_safe_route(
             n_segments=ROUTE_SCORE_SEGMENTS,
             forecast_cache=forecast_cache,
             semaphore=forecast_semaphore,
+            forecast_inputs=forecast_inputs,
         )
 
         distance_km = _haversine_km(from_.lat, from_.lng, to.lat, to.lng)
@@ -1020,6 +1075,7 @@ async def find_safe_route(
                 n_segments=ROUTE_SCORE_SEGMENTS,
                 forecast_cache=forecast_cache,
                 semaphore=forecast_semaphore,
+                forecast_inputs=forecast_inputs,
             )
             for road in roads
         ]

@@ -171,30 +171,39 @@ def _flood_probability_tier3(
     return min(0.70, 1.0 / (1.0 + math.exp(-z)))
 
 
-async def forecast_segment(lat: float, lng: float, horizon_min: int = 60) -> ForecastResponse:
+async def forecast_segment(
+    lat: float,
+    lng: float,
+    horizon_min: int = 60,
+    rainfall_data: Optional[Dict] = None,
+    river_data: Optional[Dict] = None,
+    tide_now: Optional[float] = None,
+) -> ForecastResponse:
     """Run the appropriate tier's fusion model."""
     coverage = resolve_coverage(lat, lng)
     flood_data = _load_flood_data()
-    rainfall_data = await fetch_rainfall(lat, lng, hours_ahead=3)
-    river_data = None
+    if rainfall_data is None:
+        rainfall_data = await fetch_rainfall(lat, lng, hours_ahead=3)
 
-    try:
-        river_data = river_discharge_signal(
-            await fetch_river_discharge(lat, lng, forecast_days=7)
-        )
-    except Exception:
-        river_data = {
-            "river_discharge_m3s": None,
-            "river_discharge_ratio": None,
-            "river_signal": "unavailable",
-        }
+    if river_data is None:
+        try:
+            river_data = river_discharge_signal(
+                await fetch_river_discharge(lat, lng, forecast_days=7)
+            )
+        except Exception:
+            river_data = {
+                "river_discharge_m3s": None,
+                "river_discharge_ratio": None,
+                "river_signal": "unavailable",
+            }
 
     river_ratio = (
         float(river_data["river_discharge_ratio"])
         if river_data.get("river_discharge_ratio") is not None
         else None
     )
-    tide_now = get_tide_level()
+    if tide_now is None:
+        tide_now = get_tide_level()
 
     # Pull city-specific data if available
     if coverage["city_id"]:
