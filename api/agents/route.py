@@ -47,7 +47,6 @@ ROUTE_SCORE_SEGMENTS = 4
 ROUTE_FORECAST_CONCURRENCY = 4
 ROUTE_FAST_RESPONSE_BUDGET_SECONDS = 2.4
 ROUTE_RAINFALL_TIMEOUT_SECONDS = 2.0
-ROUTE_RIVER_TIMEOUT_SECONDS = 1.0
 ROUTE_TIDE_TIMEOUT_SECONDS = 1.2
 
 FALLBACK_SPEED_KMH = {
@@ -424,19 +423,24 @@ async def _route_forecast_inputs(from_: Coord, to: Coord) -> RouteForecastInputs
         timeout=ROUTE_RAINFALL_TIMEOUT_SECONDS,
     )
 
-    try:
-        river_data = await asyncio.wait_for(
-            river_task,
-            timeout=ROUTE_RIVER_TIMEOUT_SECONDS,
-        )
-    except Exception:
+    tide_now = await tide_task
+
+    if river_task.done():
+        try:
+            river_data = river_task.result()
+        except Exception:
+            river_data = {
+                "river_discharge_m3s": None,
+                "river_discharge_ratio": None,
+                "river_signal": "unavailable",
+            }
+    else:
+        river_task.cancel()
         river_data = {
             "river_discharge_m3s": None,
             "river_discharge_ratio": None,
             "river_signal": "unavailable",
         }
-
-    tide_now = await tide_task
 
     return rainfall_data, river_data, tide_now
 
