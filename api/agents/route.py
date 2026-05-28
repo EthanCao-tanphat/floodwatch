@@ -226,6 +226,17 @@ def _fallback_forecast_points(reason: str) -> List[ForecastPoint]:
     return [_fallback_forecast_point(reason, minutes_ahead=m) for m in TIMELINE_MINUTES]
 
 
+def _rainfall_unavailable_data() -> Dict:
+    return {
+        "source": "rainfall unavailable within route response budget",
+        "minutely_15": {"precipitation": [0.0] * 12},
+        "hourly": {
+            "precipitation": [0.0, 0.0, 0.0],
+            "precipitation_probability": [],
+        },
+    }
+
+
 def _point_for_time(points: List[ForecastPoint], minutes: int) -> ForecastPoint:
     """Pick the forecast point for a given timeline minute.
 
@@ -418,10 +429,14 @@ async def _route_forecast_inputs(from_: Coord, to: Coord) -> RouteForecastInputs
     river_task = asyncio.create_task(load_river_signal())
     tide_task = asyncio.create_task(load_tide_signal())
 
-    rainfall_data = await asyncio.wait_for(
-        rainfall_task,
-        timeout=ROUTE_RAINFALL_TIMEOUT_SECONDS,
-    )
+    try:
+        rainfall_data = await asyncio.wait_for(
+            rainfall_task,
+            timeout=ROUTE_RAINFALL_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        rainfall_task.cancel()
+        rainfall_data = _rainfall_unavailable_data()
 
     tide_now = await tide_task
 
