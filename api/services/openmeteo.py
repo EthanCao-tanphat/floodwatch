@@ -13,11 +13,12 @@ Data source:
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import httpx
 
@@ -30,14 +31,19 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_TTL_SECONDS = int(os.getenv("OPENMETEO_CACHE_TTL_SECONDS", "900"))  # 15 min
 STALE_TTL_SECONDS = int(os.getenv("OPENMETEO_STALE_TTL_SECONDS", "21600"))  # 6 hr
 
-# Rounding to 2 decimals groups nearby route segments into ~1 km buckets.
+# Rounding to 1 decimal groups nearby route segments into ~10 km buckets.
 # This drastically reduces repeated calls during route scoring.
-CACHE_COORD_PRECISION = int(os.getenv("OPENMETEO_CACHE_COORD_PRECISION", "2"))
+CACHE_COORD_PRECISION = int(os.getenv("OPENMETEO_CACHE_COORD_PRECISION", "1"))
+REQUEST_MIN_INTERVAL_SECONDS = float(os.getenv("OPENMETEO_MIN_INTERVAL_SECONDS", "1.2"))
 
 # Optional transparent demo override.
 # Example for filming: export FLOODWATCH_DEMO_RAIN_MM=25
 # Leave unset/0 for normal live weather mode.
 DEMO_RAIN_MM = float(os.getenv("FLOODWATCH_DEMO_RAIN_MM", "0") or "0")
+
+_REQUEST_LOCK = asyncio.Lock()
+_LAST_REQUEST_AT = 0.0
+_IN_FLIGHT: dict[str, asyncio.Task[Dict[str, Any]]] = {}
 
 
 def _cache_key(url: str, params: Dict[str, Any]) -> Path:
@@ -70,6 +76,74 @@ def _write_cache(path: Path, data: Dict[str, Any]) -> None:
     except Exception:
         # Cache must never break the app.
         pass
+
+
+async def _throttled_get_json(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Call Open-Meteo gently so production does not burn through rate limits."""
+
+    global _LAST_REQUEST_AT
+
+    async with _REQUEST_LOCK:
+        elapsed = time.monotonic() - _LAST_REQUEST_AT
+        wait_for = REQUEST_MIN_INTERVAL_SECONDS - elapsed
+
+        if wait_for > 0:
+            await asyncio.sleep(wait_for)
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(url, params=params)
+            _LAST_REQUEST_AT = time.monotonic()
+
+        if response.status_code == 429:
+            retry_after = response.headers.get("retry-after")
+            try:
+                pause_for = min(float(retry_after or "2"), 8.0)
+            except ValueError:
+                pause_for = 2.0
+
+            await asyncio.sleep(pause_for)
+
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(url, params=params)
+                _LAST_REQUEST_AT = time.monotonic()
+
+        response.raise_for_status()
+        return response.json()
+
+
+async def _cached_openmeteo_json(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    cache_path = _cache_key(url, params)
+
+    cached = _read_cache(cache_path, CACHE_TTL_SECONDS)
+    if cached is not None:
+        return cached
+
+    key = str(cache_path)
+    existing = _IN_FLIGHT.get(key)
+
+    if existing is not None:
+        return await existing
+
+    async def load() -> Dict[str, Any]:
+        try:
+            data = await _throttled_get_json(url, params)
+            _write_cache(cache_path, data)
+            return data
+        except Exception:
+            stale = _read_cache(cache_path, STALE_TTL_SECONDS)
+
+            if stale is not None:
+                return stale
+
+            raise
+
+    task = asyncio.create_task(load())
+    _IN_FLIGHT[key] = task
+
+    try:
+        return await task
+    finally:
+        _IN_FLIGHT.pop(key, None)
 
 
 async def fetch_rainfall(
@@ -106,29 +180,49 @@ async def fetch_rainfall(
         "timezone": "Asia/Ho_Chi_Minh",
     }
 
-    cache_path = _cache_key(OPENMETEO_URL, params)
+    return await _cached_openmeteo_json(OPENMETEO_URL, params)
 
-    cached = _read_cache(cache_path, CACHE_TTL_SECONDS)
-    if cached is not None:
-        return cached
 
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(OPENMETEO_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
+async def fetch_rainfall_many(
+    points: Sequence[tuple[float, float]],
+    hours_ahead: int = 6,
+) -> List[Dict[str, Any]]:
+    """Fetch rainfall forecasts for several locations in one Open-Meteo call."""
 
-        _write_cache(cache_path, data)
-        return data
+    if not points:
+        return []
 
-    except Exception:
-        # During demo, stale weather is better than a crashed route.
-        stale = _read_cache(cache_path, STALE_TTL_SECONDS)
+    rounded = [
+        (
+            round(float(lat), CACHE_COORD_PRECISION),
+            round(float(lng), CACHE_COORD_PRECISION),
+        )
+        for lat, lng in points
+    ]
 
-        if stale is not None:
-            return stale
+    if len(rounded) == 1:
+        lat, lng = rounded[0]
+        return [await fetch_rainfall(lat, lng, hours_ahead=hours_ahead)]
 
-        raise
+    params = {
+        "latitude": ",".join(str(lat) for lat, _lng in rounded),
+        "longitude": ",".join(str(lng) for _lat, lng in rounded),
+        "minutely_15": "precipitation",
+        "hourly": "precipitation,precipitation_probability",
+        "forecast_days": 2,
+        "forecast_hours": max(1, int(hours_ahead)),
+        "timezone": "Asia/Ho_Chi_Minh",
+    }
+
+    data = await _cached_openmeteo_json(OPENMETEO_URL, params)
+
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+
+    if isinstance(data, dict):
+        return [data]
+
+    return []
 
 
 async def fetch_river_discharge(
@@ -158,28 +252,7 @@ async def fetch_river_discharge(
         "timezone": "Asia/Ho_Chi_Minh",
     }
 
-    cache_path = _cache_key(OPENMETEO_FLOOD_URL, params)
-
-    cached = _read_cache(cache_path, CACHE_TTL_SECONDS)
-    if cached is not None:
-        return cached
-
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(OPENMETEO_FLOOD_URL, params=params)
-            response.raise_for_status()
-            data = response.json()
-
-        _write_cache(cache_path, data)
-        return data
-
-    except Exception:
-        stale = _read_cache(cache_path, STALE_TTL_SECONDS)
-
-        if stale is not None:
-            return stale
-
-        raise
+    return await _cached_openmeteo_json(OPENMETEO_FLOOD_URL, params)
 
 
 def river_discharge_signal(open_meteo_flood_data: Dict[str, Any]) -> Dict[str, float | str | None]:

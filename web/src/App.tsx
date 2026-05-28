@@ -130,14 +130,18 @@ export default function App() {
     void refreshStatus()
     void refreshMapEvidence()
 
-    const id = window.setInterval(() => {
+    const statusIntervalId = window.setInterval(() => {
       void refreshStatus()
+    }, 60000)
+
+    const evidenceIntervalId = window.setInterval(() => {
       void refreshMapEvidence()
-    }, 30000)
+    }, 600000)
 
     return () => {
       alive = false
-      window.clearInterval(id)
+      window.clearInterval(statusIntervalId)
+      window.clearInterval(evidenceIntervalId)
     }
   }, [scene, refreshStatus, refreshMapEvidence])
 

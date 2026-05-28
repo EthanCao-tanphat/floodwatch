@@ -5,7 +5,6 @@ segment-by-segment, picks the safest route, and returns rejected alternatives
 for dimmed/dashed display on the frontend map.
 """
 
-import asyncio
 import math
 import sys
 from typing import List, Tuple
@@ -558,9 +557,10 @@ async def _score_route(
         )
         return [], 0.0, "unknown", "low", [fallback_peak], fallback_peak, 1.0, "unavailable"
 
-    segment_forecasts = await asyncio.gather(
-        *[_forecast_segment_midpoint(start, end) for (start, end, _chunk) in chunks]
-    )
+    segment_forecasts = []
+
+    for start, end, _chunk in chunks:
+        segment_forecasts.append(await _forecast_segment_midpoint(start, end))
 
     report_summaries = [
         report_evidence_for_segment(start, end)
@@ -979,9 +979,10 @@ async def find_safe_route(
             travel_mode=travel_mode,
         )
 
-    scored = await asyncio.gather(
-        *[_score_route(road["points"], n_segments=6) for road in roads]
-    )
+    scored = []
+
+    for road in roads:
+        scored.append(await _score_route(road["points"], n_segments=6))
 
     candidates_raw = []
 

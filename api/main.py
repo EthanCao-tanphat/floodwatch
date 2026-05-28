@@ -1,6 +1,5 @@
 """FloodWatch API — predictive flooded-road intel for Vietnam."""
 
-import asyncio
 import json
 import time
 from pathlib import Path
@@ -32,7 +31,7 @@ from config import (
 )
 from services.coverage import resolve_coverage
 from services.geocode import geocode_address
-from services.openmeteo import fetch_rainfall, rainfall_in_window
+from services.openmeteo import fetch_rainfall, fetch_rainfall_many, rainfall_in_window
 from services.reports import add_report, count_reports, list_reports
 from services.tides import get_tide_level
 from services.place_search import resolve_place, suggest_places
@@ -163,6 +162,9 @@ WEATHER_WATCH_POINTS = [
     {"id": "thainguyen", "name": "Thai Nguyen", "lat": 21.5942, "lng": 105.8482},
 ]
 
+WEATHER_WATCH_CACHE_TTL_SECONDS = 600
+_WEATHER_WATCH_CACHE: dict[str, Any] = {"updated_at": 0.0, "items": []}
+
 
 def _rain_probability(open_meteo_data: dict[str, Any]) -> int:
     hourly = open_meteo_data.get("hourly", {})
@@ -190,11 +192,19 @@ def _weather_alert_level(rain_30m_mm: float, rain_90m_mm: float, probability_pct
 async def _weather_watch_point(point: dict[str, Any]) -> Optional[dict[str, Any]]:
     try:
         data = await fetch_rainfall(point["lat"], point["lng"], hours_ahead=2)
-        rain_30m = rainfall_in_window(data, minutes_from_now=0)
-        rain_90m = rainfall_in_window(data, minutes_from_now=60)
-        probability = _rain_probability(data)
     except Exception:
         return None
+
+    return _weather_watch_point_from_data(point, data)
+
+
+def _weather_watch_point_from_data(
+    point: dict[str, Any],
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    rain_30m = rainfall_in_window(data, minutes_from_now=0)
+    rain_90m = rainfall_in_window(data, minutes_from_now=60)
+    probability = _rain_probability(data)
 
     return {
         "id": f"weather-{point['id']}",
@@ -213,16 +223,33 @@ async def _weather_watch_point(point: dict[str, Any]) -> Optional[dict[str, Any]
 
 
 async def _weather_watch_points() -> List[dict[str, Any]]:
-    results = await asyncio.gather(
-        *[_weather_watch_point(point) for point in WEATHER_WATCH_POINTS],
-        return_exceptions=True,
-    )
+    now = time.time()
 
-    return [
+    if now - float(_WEATHER_WATCH_CACHE["updated_at"]) < WEATHER_WATCH_CACHE_TTL_SECONDS:
+        return list(_WEATHER_WATCH_CACHE["items"])
+
+    try:
+        forecasts = await fetch_rainfall_many(
+            [(point["lat"], point["lng"]) for point in WEATHER_WATCH_POINTS],
+            hours_ahead=2,
+        )
+        results = [
+            _weather_watch_point_from_data(point, forecast)
+            for point, forecast in zip(WEATHER_WATCH_POINTS, forecasts)
+        ]
+    except Exception:
+        results = []
+
+    items = [
         item
         for item in results
         if isinstance(item, dict)
     ]
+
+    _WEATHER_WATCH_CACHE["updated_at"] = now
+    _WEATHER_WATCH_CACHE["items"] = items
+
+    return items
 
 
 @app.get("/")
