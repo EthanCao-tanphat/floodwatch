@@ -248,6 +248,14 @@ async def forecast_segment(
             prob = _flood_probability_tier3(rain, river_ratio)
 
         prob = _active_probability(prob, state)
+
+        if (
+            rain < 5
+            and tide_factor(tide_now) >= 0.5
+            and (river_ratio or 0.0) < 1.25
+        ):
+            prob = min(prob, 0.54)
+
         rounded_prob = round(prob, 3)
         confidence = _confidence(coverage["tier"], rain, hist_freq)
 
