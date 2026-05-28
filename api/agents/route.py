@@ -8,6 +8,7 @@ for dimmed/dashed display on the frontend map.
 import asyncio
 import math
 import sys
+import time
 from typing import Dict, List, Tuple
 
 from models import (
@@ -44,7 +45,7 @@ REROUTE_SCORE_DELTA = 0.05
 REROUTE_RISK_DELTA = 0.10
 ROUTE_SCORE_SEGMENTS = 4
 ROUTE_FORECAST_CONCURRENCY = 4
-ROUTE_FORECAST_INPUT_TIMEOUT_SECONDS = 1.8
+ROUTE_FAST_RESPONSE_BUDGET_SECONDS = 2.4
 
 FALLBACK_SPEED_KMH = {
     "motorbike": 25,
@@ -980,6 +981,7 @@ async def find_safe_route(
 ) -> RouteResponse:
     """Find safest/recommended route and return all selectable candidates."""
 
+    started_at = time.monotonic()
     roads_task = asyncio.create_task(fetch_road_routes(
         from_.lat,
         from_.lng,
@@ -996,9 +998,15 @@ async def find_safe_route(
     forecast_inputs: RouteForecastInputs | str | None = None
 
     try:
+        forecast_budget_remaining = ROUTE_FAST_RESPONSE_BUDGET_SECONDS - (
+            time.monotonic() - started_at
+        )
+        if forecast_budget_remaining <= 0:
+            raise TimeoutError("route fast response budget exhausted")
+
         forecast_inputs = await asyncio.wait_for(
             forecast_inputs_task,
-            timeout=ROUTE_FORECAST_INPUT_TIMEOUT_SECONDS,
+            timeout=forecast_budget_remaining,
         )
     except Exception:
         forecast_inputs = UNAVAILABLE_ROUTE_FORECAST
