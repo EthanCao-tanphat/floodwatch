@@ -21,6 +21,9 @@ OPENMETEO_URL = "https://api.open-meteo.com/v1/forecast"
 # Open-Meteo Flood API endpoint backed by GloFAS river-discharge forecasts.
 OPENMETEO_FLOOD_URL = "https://flood-api.open-meteo.com/v1/flood"
 
+# Secondary global forecast source used when Open-Meteo throttles shared hosts.
+METNO_LOCATIONFORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+
 # Tiered coverage. See docs/architecture.md for the rationale.
 #
 # Tier 1 — full multi-feature fusion (rainfall + tide + drainage + historical hotspots)

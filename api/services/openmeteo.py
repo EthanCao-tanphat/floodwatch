@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import httpx
 
-from config import OPENMETEO_FLOOD_URL, OPENMETEO_URL
+from config import METNO_LOCATIONFORECAST_URL, OPENMETEO_FLOOD_URL, OPENMETEO_URL
 
 
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache"
@@ -35,6 +35,10 @@ STALE_TTL_SECONDS = int(os.getenv("OPENMETEO_STALE_TTL_SECONDS", "21600"))  # 6 
 # This drastically reduces repeated calls during route scoring.
 CACHE_COORD_PRECISION = int(os.getenv("OPENMETEO_CACHE_COORD_PRECISION", "1"))
 REQUEST_MIN_INTERVAL_SECONDS = float(os.getenv("OPENMETEO_MIN_INTERVAL_SECONDS", "1.2"))
+METNO_USER_AGENT = os.getenv(
+    "METNO_USER_AGENT",
+    "FloodWatch/0.2 https://github.com/EthanCao-tanphat/floodwatch",
+)
 
 # Optional transparent demo override.
 # Example for filming: export FLOODWATCH_DEMO_RAIN_MM=25
@@ -78,7 +82,11 @@ def _write_cache(path: Path, data: Dict[str, Any]) -> None:
         pass
 
 
-async def _throttled_get_json(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+async def _throttled_get_json(
+    url: str,
+    params: Dict[str, Any],
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Call Open-Meteo gently so production does not burn through rate limits."""
 
     global _LAST_REQUEST_AT
@@ -91,7 +99,7 @@ async def _throttled_get_json(url: str, params: Dict[str, Any]) -> Dict[str, Any
             await asyncio.sleep(wait_for)
 
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(url, params=params)
+            response = await client.get(url, params=params, headers=headers)
             _LAST_REQUEST_AT = time.monotonic()
 
         if response.status_code == 429:
@@ -104,14 +112,18 @@ async def _throttled_get_json(url: str, params: Dict[str, Any]) -> Dict[str, Any
             await asyncio.sleep(pause_for)
 
             async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(url, params=params)
+                response = await client.get(url, params=params, headers=headers)
                 _LAST_REQUEST_AT = time.monotonic()
 
         response.raise_for_status()
         return response.json()
 
 
-async def _cached_openmeteo_json(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+async def _cached_weather_json(
+    url: str,
+    params: Dict[str, Any],
+    headers: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     cache_path = _cache_key(url, params)
 
     cached = _read_cache(cache_path, CACHE_TTL_SECONDS)
@@ -126,7 +138,7 @@ async def _cached_openmeteo_json(url: str, params: Dict[str, Any]) -> Dict[str, 
 
     async def load() -> Dict[str, Any]:
         try:
-            data = await _throttled_get_json(url, params)
+            data = await _throttled_get_json(url, params, headers=headers)
             _write_cache(cache_path, data)
             return data
         except Exception:
@@ -180,7 +192,53 @@ async def fetch_rainfall(
         "timezone": "Asia/Ho_Chi_Minh",
     }
 
-    return await _cached_openmeteo_json(OPENMETEO_URL, params)
+    try:
+        return await _cached_weather_json(OPENMETEO_URL, params)
+    except Exception:
+        return await fetch_metno_rainfall(lat_key, lng_key, hours_ahead=hours_ahead)
+
+
+async def fetch_metno_rainfall(
+    lat: float,
+    lng: float,
+    hours_ahead: int = 6,
+) -> Dict[str, Any]:
+    """Fetch a no-key global precipitation forecast from MET Norway."""
+
+    params = {
+        "lat": round(float(lat), CACHE_COORD_PRECISION),
+        "lon": round(float(lng), CACHE_COORD_PRECISION),
+    }
+
+    data = await _cached_weather_json(
+        METNO_LOCATIONFORECAST_URL,
+        params,
+        headers={"User-Agent": METNO_USER_AGENT},
+    )
+
+    timeseries = ((data.get("properties") or {}).get("timeseries") or [])[: max(1, hours_ahead)]
+    hourly_precip: List[float] = []
+    hourly_probability: List[int] = []
+    minutely_15: List[float] = []
+
+    for item in timeseries:
+        next_hour = ((item.get("data") or {}).get("next_1_hours") or {})
+        details = next_hour.get("details") or {}
+        precip = float(details.get("precipitation_amount") or 0.0)
+        probability = int(round(float(details.get("probability_of_precipitation") or 0)))
+
+        hourly_precip.append(precip)
+        hourly_probability.append(probability)
+        minutely_15.extend([precip / 4.0] * 4)
+
+    return {
+        "source": "MET Norway Locationforecast",
+        "minutely_15": {"precipitation": minutely_15},
+        "hourly": {
+            "precipitation": hourly_precip,
+            "precipitation_probability": hourly_probability,
+        },
+    }
 
 
 async def fetch_rainfall_many(
@@ -214,7 +272,13 @@ async def fetch_rainfall_many(
         "timezone": "Asia/Ho_Chi_Minh",
     }
 
-    data = await _cached_openmeteo_json(OPENMETEO_URL, params)
+    try:
+        data = await _cached_weather_json(OPENMETEO_URL, params)
+    except Exception:
+        return [
+            await fetch_metno_rainfall(lat, lng, hours_ahead=hours_ahead)
+            for lat, lng in rounded
+        ]
 
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
@@ -252,7 +316,7 @@ async def fetch_river_discharge(
         "timezone": "Asia/Ho_Chi_Minh",
     }
 
-    return await _cached_openmeteo_json(OPENMETEO_FLOOD_URL, params)
+    return await _cached_weather_json(OPENMETEO_FLOOD_URL, params)
 
 
 def river_discharge_signal(open_meteo_flood_data: Dict[str, Any]) -> Dict[str, float | str | None]:

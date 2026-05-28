@@ -217,7 +217,7 @@ def _weather_watch_point_from_data(
         "alert_level": _weather_alert_level(rain_30m, rain_90m, probability),
         "evidence_type": "rainfall_forecast",
         "evidence_state": "forecast",
-        "source": "Open-Meteo forecast",
+        "source": data.get("source") or "Open-Meteo forecast",
         "updated_at": int(time.time()),
     }
 
