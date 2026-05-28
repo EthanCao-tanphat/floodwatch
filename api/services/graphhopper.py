@@ -23,7 +23,10 @@ import httpx
 
 
 GRAPHHOPPER_URL = "https://graphhopper.com/api/1/route"
-GRAPHHOPPER_TIMEOUT = float(os.getenv("GRAPHHOPPER_TIMEOUT_SECONDS", "2.0"))
+GRAPHHOPPER_TIMEOUT = max(
+    0.5,
+    min(float(os.getenv("GRAPHHOPPER_TIMEOUT_SECONDS", "1.8")), 1.8),
+)
 ENABLE_VIA_FALLBACKS = os.getenv("FLOODWATCH_ROUTE_DEEP_ALTERNATIVES", "").lower() in {
     "1",
     "true",
