@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+
 import type { EvidenceState, Passability, RouteResponse, RiskLevel } from '../types'
 
 interface Props {
@@ -93,6 +95,7 @@ function travelModeTitle(result: RouteResponse): string {
 }
 
 export function RouteResults({ result, onClose }: Props) {
+  const detailsRef = useRef<HTMLDetailsElement | null>(null)
   const state = evidenceState(result)
   const segmentScores = result.segments
     .map((segment) => segment.risk_score ?? segment.flood_prob ?? 0)
@@ -110,15 +113,11 @@ export function RouteResults({ result, onClose }: Props) {
       segment.passability === 'impassable'
   ).length
 
-  function openGoogleMaps() {
-    const first = result.segments[0]?.start
-    const last = result.segments[result.segments.length - 1]?.end
-
-    if (!first || !last) return
-
-    const url = new URL('https://www.google.com/maps/dir/')
-    url.pathname = `/maps/dir/${first.lat},${first.lng}/${last.lat},${last.lng}`
-    window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  function inspectRoute() {
+    if (detailsRef.current) {
+      detailsRef.current.open = true
+      detailsRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
   }
 
   async function shareRoute() {
@@ -154,8 +153,8 @@ export function RouteResults({ result, onClose }: Props) {
   }
 
   return (
-    <div className="mt-3 overflow-hidden rounded-t-[28px] bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.16)] ring-1 ring-slate-200 sm:rounded-xl">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-4">
+    <div className="mt-3 max-h-[72dvh] overflow-y-auto rounded-t-[28px] bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.16)] ring-1 ring-slate-200 sm:max-h-none sm:overflow-hidden sm:rounded-xl">
+      <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
         <div>
           <div className="hidden text-xs font-extrabold uppercase tracking-wide text-slate-400 sm:block">
             Selected route
@@ -195,7 +194,7 @@ export function RouteResults({ result, onClose }: Props) {
       <div className="flex gap-3 overflow-x-auto border-b border-slate-100 px-4 py-3 sm:hidden">
         <button
           type="button"
-          onClick={openGoogleMaps}
+          onClick={inspectRoute}
           className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-cyan-700 px-5 text-sm font-extrabold text-white shadow-lg shadow-cyan-700/20"
         >
           <ArrowIcon className="h-5 w-5" />
@@ -243,7 +242,7 @@ export function RouteResults({ result, onClose }: Props) {
           )}
         </div>
 
-        <details className="rounded-2xl bg-white ring-1 ring-slate-200">
+        <details ref={detailsRef} className="rounded-2xl bg-white ring-1 ring-slate-200">
           <summary className="cursor-pointer px-4 py-3 text-sm font-extrabold text-slate-800">
             Route details
           </summary>

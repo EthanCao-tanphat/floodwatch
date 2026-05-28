@@ -320,7 +320,7 @@ function EvidenceLegend({
   if (!showHotspots && !showReports && !showWeather) return null
 
   return (
-    <div className="pointer-events-auto fixed bottom-[152px] left-3 z-40 flex max-w-[calc(100vw-24px)] flex-col-reverse items-start gap-2 sm:bottom-6">
+    <div className="pointer-events-auto fixed bottom-6 left-3 z-40 flex max-w-[calc(100vw-24px)] flex-col-reverse items-start gap-2">
       <button
         type="button"
         onPointerDown={(event) => {

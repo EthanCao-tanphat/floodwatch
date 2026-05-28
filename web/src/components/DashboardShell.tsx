@@ -132,6 +132,31 @@ export function DashboardShell({
               {apiStatus}
             </div>
           </div>
+
+          {active === 'map' && (
+            <div className="flex max-w-full gap-2 overflow-x-auto pb-1 sm:hidden">
+              <QuickActionChip
+                label="Set home"
+                Icon={HomeIcon}
+                onClick={() => onSelectNav('routes')}
+              />
+              <QuickActionChip
+                label="Reports"
+                Icon={CameraIcon}
+                onClick={() => onSelectNav('reports')}
+              />
+              <QuickActionChip
+                label="Layers"
+                Icon={CloudRainIcon}
+                onClick={() => onSelectNav('layers')}
+              />
+              <QuickActionChip
+                label="Alerts"
+                Icon={AlertIcon}
+                onClick={() => onSelectNav('alerts')}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -225,6 +250,27 @@ export function DashboardShell({
   )
 }
 
+function QuickActionChip({
+  label,
+  Icon,
+  onClick,
+}: {
+  label: string
+  Icon: ComponentType<SVGProps<SVGSVGElement>>
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-white px-4 text-sm font-extrabold text-slate-800 shadow-[0_10px_26px_rgba(15,23,42,0.16)] ring-1 ring-slate-200"
+    >
+      <Icon className="h-5 w-5 shrink-0 text-slate-700" />
+      {label}
+    </button>
+  )
+}
+
 function ToolbarChip({
   item,
   label,
@@ -314,6 +360,16 @@ function CloseIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
       <path d="M6 6l12 12" strokeLinecap="round" />
       <path d="M18 6L6 18" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function HomeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
+      <path d="m3 11 9-8 9 8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 10v10h14V10" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 20v-6h6v6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
