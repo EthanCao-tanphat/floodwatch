@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+import asyncio
 from typing import List, Optional, Tuple, TypedDict
 
 import httpx
@@ -25,7 +26,7 @@ import httpx
 GRAPHHOPPER_URL = "https://graphhopper.com/api/1/route"
 GRAPHHOPPER_TIMEOUT = max(
     0.5,
-    min(float(os.getenv("GRAPHHOPPER_TIMEOUT_SECONDS", "1.8")), 1.8),
+    min(float(os.getenv("GRAPHHOPPER_TIMEOUT_SECONDS", "1.2")), 1.2),
 )
 ENABLE_VIA_FALLBACKS = os.getenv("FLOODWATCH_ROUTE_DEEP_ALTERNATIVES", "").lower() in {
     "1",
@@ -312,12 +313,19 @@ async def fetch_road_routes(
     routes: List[RoadRoute] = []
 
     # 1. Ask GraphHopper for normal alternatives first.
-    normal_routes = await _request_graphhopper_routes(
-        [(from_lat, from_lng), (to_lat, to_lng)],
-        use_alternative_algorithm=(max_paths > 1),
-        max_paths=max_paths,
-        travel_mode=travel_mode,
-    )
+    try:
+        normal_routes = await asyncio.wait_for(
+            _request_graphhopper_routes(
+                [(from_lat, from_lng), (to_lat, to_lng)],
+                use_alternative_algorithm=(max_paths > 1),
+                max_paths=max_paths,
+                travel_mode=travel_mode,
+            ),
+            timeout=GRAPHHOPPER_TIMEOUT,
+        )
+    except Exception as exc:
+        print(f"[graphhopper] Timed out or failed: {exc}", file=sys.stderr)
+        normal_routes = []
 
     for route in normal_routes:
         _append_unique_route(routes, route, max_paths)

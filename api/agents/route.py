@@ -46,6 +46,9 @@ REROUTE_RISK_DELTA = 0.10
 ROUTE_SCORE_SEGMENTS = 4
 ROUTE_FORECAST_CONCURRENCY = 4
 ROUTE_FAST_RESPONSE_BUDGET_SECONDS = 2.4
+ROUTE_RAINFALL_TIMEOUT_SECONDS = 2.0
+ROUTE_RIVER_TIMEOUT_SECONDS = 1.0
+ROUTE_TIDE_TIMEOUT_SECONDS = 1.2
 
 FALLBACK_SPEED_KMH = {
     "motorbike": 25,
@@ -389,11 +392,42 @@ async def _route_forecast_inputs(from_: Coord, to: Coord) -> RouteForecastInputs
     mid_lat = (from_.lat + to.lat) / 2
     mid_lng = (from_.lng + to.lng) / 2
 
-    rainfall_data = await fetch_rainfall(mid_lat, mid_lng, hours_ahead=3)
+    async def load_river_signal() -> Dict:
+        try:
+            return river_discharge_signal(
+                await fetch_river_discharge(mid_lat, mid_lng, forecast_days=7)
+            )
+        except Exception:
+            return {
+                "river_discharge_m3s": None,
+                "river_discharge_ratio": None,
+                "river_signal": "unavailable",
+            }
+
+    async def load_tide_signal() -> float:
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(get_tide_level),
+                timeout=ROUTE_TIDE_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            # Keep the route answer fast and honest: no tide pressure signal
+            # is better than blocking and then inventing active flooding.
+            return 0.0
+
+    rainfall_task = asyncio.create_task(fetch_rainfall(mid_lat, mid_lng, hours_ahead=3))
+    river_task = asyncio.create_task(load_river_signal())
+    tide_task = asyncio.create_task(load_tide_signal())
+
+    rainfall_data = await asyncio.wait_for(
+        rainfall_task,
+        timeout=ROUTE_RAINFALL_TIMEOUT_SECONDS,
+    )
 
     try:
-        river_data = river_discharge_signal(
-            await fetch_river_discharge(mid_lat, mid_lng, forecast_days=7)
+        river_data = await asyncio.wait_for(
+            river_task,
+            timeout=ROUTE_RIVER_TIMEOUT_SECONDS,
         )
     except Exception:
         river_data = {
@@ -402,7 +436,9 @@ async def _route_forecast_inputs(from_: Coord, to: Coord) -> RouteForecastInputs
             "river_signal": "unavailable",
         }
 
-    return rainfall_data, river_data, get_tide_level()
+    tide_now = await tide_task
+
+    return rainfall_data, river_data, tide_now
 
 
 async def _forecast_segment_midpoint(
