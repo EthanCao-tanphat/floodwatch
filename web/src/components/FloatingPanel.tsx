@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
@@ -6,33 +6,48 @@ interface Props {
 }
 
 export function FloatingPanel({ children }: Props) {
-  const [expanded, setExpanded] = useState(false)
+  const [heightVh, setHeightVh] = useState(58)
+  const [dragging, setDragging] = useState(false)
   const dragStartYRef = useRef<number | null>(null)
+  const dragStartHeightRef = useRef(58)
   const handledDragRef = useRef(false)
+
+  function clampHeight(value: number): number {
+    return Math.min(88, Math.max(42, value))
+  }
+
+  function snapHeight(value: number): number {
+    if (value >= 73) return 88
+    if (value <= 50) return 42
+    return 58
+  }
+
+  function updateDrag(y: number) {
+    if (dragStartYRef.current === null) return
+
+    const deltaVh = ((dragStartYRef.current - y) / window.innerHeight) * 100
+    setHeightVh(clampHeight(dragStartHeightRef.current + deltaVh))
+  }
 
   function finishDrag(y: number) {
     if (dragStartYRef.current === null) return
 
-    const delta = y - dragStartYRef.current
-    dragStartYRef.current = null
+    const deltaVh = ((dragStartYRef.current - y) / window.innerHeight) * 100
+    const nextHeight = clampHeight(dragStartHeightRef.current + deltaVh)
 
-    if (delta < -28) {
-      handledDragRef.current = true
-      setExpanded(true)
-    } else if (delta > 28) {
-      handledDragRef.current = true
-      setExpanded(false)
-    }
+    dragStartYRef.current = null
+    setDragging(false)
+    handledDragRef.current = Math.abs(deltaVh) > 1.5
+    setHeightVh(snapHeight(nextHeight))
   }
 
   return (
     <div
-      className="mobile-bottom-sheet fixed inset-x-0 bottom-0 z-50 sm:inset-auto sm:left-4 sm:top-[92px] sm:z-40 sm:w-[min(448px,calc(100vw-24px))]"
+      className="mobile-bottom-sheet fixed inset-x-0 bottom-0 z-50 h-[var(--sheet-height)] max-h-[calc(88dvh-env(safe-area-inset-bottom))] sm:inset-auto sm:left-4 sm:top-[92px] sm:z-40 sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:w-[min(448px,calc(100vw-24px))]"
       style={{
-        maxHeight: expanded
-          ? 'calc(88dvh - env(safe-area-inset-bottom))'
-          : 'calc(58dvh - env(safe-area-inset-bottom))',
-      }}
+        '--sheet-height': `${heightVh}dvh`,
+        transition: dragging ? 'none' : 'height 180ms ease',
+      } as CSSProperties}
     >
       <button
         type="button"
@@ -41,29 +56,29 @@ export function FloatingPanel({ children }: Props) {
             handledDragRef.current = false
             return
           }
-          setExpanded((value) => !value)
+          setHeightVh((value) => (value >= 73 ? 42 : 88))
         }}
         onPointerDown={(event) => {
           dragStartYRef.current = event.clientY
+          dragStartHeightRef.current = heightVh
+          setDragging(true)
           event.currentTarget.setPointerCapture(event.pointerId)
         }}
+        onPointerMove={(event) => updateDrag(event.clientY)}
         onPointerUp={(event) => finishDrag(event.clientY)}
         onPointerCancel={() => {
           dragStartYRef.current = null
+          setDragging(false)
         }}
-        className="mx-auto mb-2 flex h-8 w-24 items-center justify-center rounded-full sm:hidden"
-        aria-label={expanded ? 'Collapse panel' : 'Expand panel'}
-        aria-expanded={expanded}
+        className="mx-auto mb-2 flex h-8 w-24 touch-none items-center justify-center rounded-full sm:hidden"
+        aria-label={heightVh >= 73 ? 'Collapse panel' : 'Expand panel'}
+        aria-expanded={heightVh >= 73}
       >
         <span className="h-1.5 w-12 rounded-full bg-slate-300/90" />
       </button>
 
       <div
-        className={`mobile-bottom-sheet-scroll overflow-y-auto rounded-t-[28px] overscroll-contain bg-transparent pb-[env(safe-area-inset-bottom)] sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:pb-0 ${
-          expanded
-            ? 'max-h-[calc(88dvh-2.5rem-env(safe-area-inset-bottom))]'
-            : 'max-h-[calc(58dvh-2.5rem-env(safe-area-inset-bottom))]'
-        }`}
+        className="mobile-bottom-sheet-scroll h-[calc(100%-2.5rem)] overflow-y-auto rounded-t-[28px] overscroll-contain bg-transparent pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:pb-0"
       >
         {children}
       </div>
