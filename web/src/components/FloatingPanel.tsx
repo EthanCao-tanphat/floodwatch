@@ -49,38 +49,40 @@ export function FloatingPanel({ children }: Props) {
         transition: dragging ? 'none' : 'height 180ms ease',
       } as CSSProperties}
     >
-      <button
-        type="button"
-        onClick={() => {
-          if (handledDragRef.current) {
-            handledDragRef.current = false
-            return
-          }
-          setHeightVh((value) => (value >= 73 ? 42 : 88))
-        }}
-        onPointerDown={(event) => {
-          dragStartYRef.current = event.clientY
-          dragStartHeightRef.current = heightVh
-          setDragging(true)
-          event.currentTarget.setPointerCapture(event.pointerId)
-        }}
-        onPointerMove={(event) => updateDrag(event.clientY)}
-        onPointerUp={(event) => finishDrag(event.clientY)}
-        onPointerCancel={() => {
-          dragStartYRef.current = null
-          setDragging(false)
-        }}
-        className="mx-auto mb-2 flex h-8 w-24 touch-none items-center justify-center rounded-full sm:hidden"
-        aria-label={heightVh >= 73 ? 'Collapse panel' : 'Expand panel'}
-        aria-expanded={heightVh >= 73}
-      >
-        <span className="h-1.5 w-12 rounded-full bg-slate-300/90" />
-      </button>
+      <div className="h-full overflow-hidden rounded-t-[28px] bg-white shadow-[0_-12px_36px_rgba(15,23,42,0.18)] ring-1 ring-slate-200 sm:h-auto sm:rounded-xl sm:bg-transparent sm:shadow-none sm:ring-0">
+        <button
+          type="button"
+          onClick={() => {
+            if (handledDragRef.current) {
+              handledDragRef.current = false
+              return
+            }
+            setHeightVh((value) => (value >= 73 ? 42 : 88))
+          }}
+          onPointerDown={(event) => {
+            dragStartYRef.current = event.clientY
+            dragStartHeightRef.current = heightVh
+            setDragging(true)
+            event.currentTarget.setPointerCapture(event.pointerId)
+          }}
+          onPointerMove={(event) => updateDrag(event.clientY)}
+          onPointerUp={(event) => finishDrag(event.clientY)}
+          onPointerCancel={() => {
+            dragStartYRef.current = null
+            setDragging(false)
+          }}
+          className="mx-auto flex h-8 w-24 touch-none items-center justify-center rounded-full sm:hidden"
+          aria-label={heightVh >= 73 ? 'Collapse panel' : 'Expand panel'}
+          aria-expanded={heightVh >= 73}
+        >
+          <span className="h-1.5 w-12 rounded-full bg-slate-300/90" />
+        </button>
 
-      <div
-        className="mobile-bottom-sheet-scroll h-[calc(100%-2.5rem)] overflow-y-auto rounded-t-[28px] overscroll-contain bg-transparent pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:pb-0"
-      >
-        {children}
+        <div
+          className="mobile-bottom-sheet-scroll h-[calc(100%-2rem)] overflow-y-auto overscroll-contain bg-white pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
+        >
+          {children}
+        </div>
       </div>
     </div>
   )
