@@ -37,6 +37,16 @@
   .safe-bottom {
     padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   }
+
+  .mobile-bottom-sheet,
+  .mobile-bottom-sheet-scroll {
+    touch-action: pan-y;
+    overscroll-behavior-y: contain;
+  }
+
+  .mobile-bottom-sheet-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 @layer components {
