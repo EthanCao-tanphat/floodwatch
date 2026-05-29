@@ -133,12 +133,12 @@ export function DashboardShell({
             </div>
           </div>
 
-          {active === 'map' && (
+          {(active === 'map' || active === 'routes') && (
             <div className="flex max-w-full gap-2 overflow-x-auto pb-1 sm:hidden">
               <QuickActionChip
-                label="Set home"
-                Icon={HomeIcon}
-                onClick={() => onSelectNav('routes')}
+                label={active === 'routes' ? 'Map' : 'Set home'}
+                Icon={active === 'routes' ? MapIcon : HomeIcon}
+                onClick={() => onSelectNav(active === 'routes' ? 'map' : 'routes')}
               />
               <QuickActionChip
                 label="Reports"
