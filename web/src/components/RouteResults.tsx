@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 
-import type { EvidenceState, Passability, RouteResponse, RiskLevel } from '../types'
+import type { EvidenceState, Passability, RouteResponse, RiskLevel, RouteSegment } from '../types'
 
 interface Props {
   result: RouteResponse
@@ -92,6 +92,47 @@ function travelModeTitle(result: RouteResponse): string {
   if (result.travel_mode === 'bicycle') return 'Bicycle'
   if (result.travel_mode === 'transit') return 'Transit'
   return 'Two-wheeler'
+}
+
+function evidenceSummary(segment: RouteSegment): string {
+  const evidence = segment.evidence
+  const parts: string[] = []
+
+  if (segment.evidence_state === 'unavailable') {
+    return 'Live flood data unavailable for this segment.'
+  }
+
+  if (segment.evidence_state === 'susceptibility') {
+    parts.push('Historical susceptibility only')
+  } else {
+    parts.push(`Rain ${evidence.rainfall_mm.toFixed(1)}mm`)
+  }
+
+  if (evidence.tide_level_m !== null && evidence.tide_level_m !== undefined) {
+    parts.push(`Tide ${evidence.tide_level_m.toFixed(2)}m`)
+  }
+
+  if (evidence.river_discharge_ratio !== null && evidence.river_discharge_ratio !== undefined) {
+    parts.push(`River ${evidence.river_discharge_ratio.toFixed(2)}x`)
+  }
+
+  if (evidence.report_count > 0) {
+    parts.push(`${evidence.report_count} rider report${evidence.report_count === 1 ? '' : 's'}`)
+  }
+
+  if (segment.evidence_state === 'susceptibility') {
+    parts.push(`Hotspot ${Math.round(evidence.hotspot_proximity * 100)}%`)
+  }
+
+  return parts.join(' · ')
+}
+
+function evidenceTone(segment: RouteSegment): string {
+  if (segment.evidence_state === 'unavailable') return 'border-slate-200 bg-slate-50'
+  if (segment.evidence_state === 'susceptibility') return 'border-amber-200 bg-amber-50/70'
+  if (segment.risk_level === 'high' || segment.risk_level === 'severe') return 'border-orange-200 bg-orange-50/70'
+  if (segment.risk_level === 'moderate') return 'border-amber-200 bg-amber-50/60'
+  return 'border-emerald-200 bg-emerald-50/60'
 }
 
 export function RouteResults({ result, onClose }: Props) {
@@ -277,6 +318,68 @@ export function RouteResults({ result, onClose }: Props) {
             </div>
           </div>
         </details>
+
+        <div className="rounded-2xl bg-white ring-1 ring-slate-200">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <div className="text-base font-extrabold text-slate-950">Flood details</div>
+            <div className="mt-1 text-xs font-semibold text-slate-500">
+              Segment evidence from rainfall, tide, river, rider reports, and historical susceptibility.
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {result.segments.map((segment, index) => {
+              const score = Math.round(
+                ((segment.risk_score ?? segment.flood_prob ?? 0) as number) * 100
+              )
+
+              return (
+                <div
+                  key={`${segment.start.lat}-${segment.start.lng}-${index}-mobile`}
+                  className="grid grid-cols-[2.5rem_1fr] gap-3 px-4 py-4"
+                >
+                  <div className="flex flex-col items-center">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-sm font-black text-white">
+                      {index + 1}
+                    </div>
+                    {index < result.segments.length - 1 && (
+                      <div className="mt-2 h-full min-h-8 w-0.5 rounded-full bg-slate-200" />
+                    )}
+                  </div>
+
+                  <div className={`rounded-xl border px-3 py-3 ${evidenceTone(segment)}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-extrabold text-slate-950">
+                          Segment {index + 1}
+                        </div>
+                        <div className="mt-1 text-xs font-semibold leading-relaxed text-slate-600">
+                          {evidenceSummary(segment)}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-800 ring-1 ring-slate-200">
+                        {score}%
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold">
+                      <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
+                        {passabilityLabel[segment.passability]}
+                      </span>
+                      <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
+                        {segment.confidence} confidence
+                      </span>
+                      <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
+                        {segment.evidence_state}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="hidden space-y-3 px-4 py-4 sm:block">

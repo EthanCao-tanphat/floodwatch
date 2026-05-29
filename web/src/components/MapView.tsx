@@ -545,10 +545,9 @@ export function MapView({
         type: 'line',
         source: 'fw-alternatives',
         paint: {
-          'line-color': '#64748b',
-          'line-width': 4,
-          'line-opacity': 0.45,
-          'line-dasharray': [2, 2],
+          'line-color': '#2563eb',
+          'line-width': 5,
+          'line-opacity': 0.72,
         },
         layout: {
           visibility: activeLayers.alternatives ? 'visible' : 'none',
@@ -568,6 +567,24 @@ export function MapView({
       })
     }
 
+    if (!map.getLayer('fw-route-segments-casing')) {
+      map.addLayer({
+        id: 'fw-route-segments-casing',
+        type: 'line',
+        source: 'fw-route-segments',
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': 13,
+          'line-opacity': 0.98,
+        },
+        layout: {
+          visibility: activeLayers.routeSegments ? 'visible' : 'none',
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+      })
+    }
+
     if (!map.getLayer('fw-route-segments-line')) {
       map.addLayer({
         id: 'fw-route-segments-line',
@@ -575,8 +592,8 @@ export function MapView({
         source: 'fw-route-segments',
         paint: {
           'line-color': ['get', 'color'],
-          'line-width': 7,
-          'line-opacity': 0.95,
+          'line-width': 9,
+          'line-opacity': 1,
         },
         layout: {
           visibility: activeLayers.routeSegments ? 'visible' : 'none',
@@ -737,6 +754,14 @@ export function MapView({
     if (map.getLayer('fw-route-segments-line')) {
       map.setLayoutProperty(
         'fw-route-segments-line',
+        'visibility',
+        activeLayers.routeSegments ? 'visible' : 'none'
+      )
+    }
+
+    if (map.getLayer('fw-route-segments-casing')) {
+      map.setLayoutProperty(
+        'fw-route-segments-casing',
         'visibility',
         activeLayers.routeSegments ? 'visible' : 'none'
       )
