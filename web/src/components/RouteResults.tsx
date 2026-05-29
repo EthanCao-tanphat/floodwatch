@@ -194,7 +194,7 @@ export function RouteResults({ result, onClose }: Props) {
   }
 
   return (
-    <div className="mt-3 max-h-[72dvh] overflow-y-auto rounded-t-[28px] bg-white text-slate-900 shadow-[0_14px_36px_rgba(15,23,42,0.16)] ring-1 ring-slate-200 sm:max-h-none sm:overflow-hidden sm:rounded-xl">
+    <div className="bg-white text-slate-900 sm:mt-3 sm:rounded-xl sm:shadow-[0_14px_36px_rgba(15,23,42,0.16)] sm:ring-1 sm:ring-slate-200">
       <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
         <div>
           <div className="hidden text-xs font-extrabold uppercase tracking-wide text-slate-400 sm:block">
