@@ -25,6 +25,7 @@ const EARTH_TEXTURE_URL = '/earth-night.jpg'
 const GLOBE_RADIUS = 2.1
 const HORIZONTAL_DRAG_SPEED = 0.006
 const TAP_MOVE_THRESHOLD_PX = 8
+const AUTO_ROTATE_RESUME_MS = 2200
 
 const PINS: Pin[] = [
   { id: 'vietnam', lat: 14.0583, lng: 108.2772, kind: 'primary' },
@@ -269,6 +270,7 @@ export function GlobeIntro({ onContinue }: Props) {
     const pointer = new THREE.Vector2()
     const clickTargets: THREE.Object3D[] = []
     const activePointers = new Map<number, PointerEvent>()
+    let autoRotateResumeTimer = 0
     const dragState = {
       active: false,
       pointerId: -1,
@@ -277,6 +279,25 @@ export function GlobeIntro({ onContinue }: Props) {
       lastX: 0,
       moved: false,
       pinchDistance: 0,
+    }
+
+    const pauseAutoRotate = () => {
+      controls.autoRotate = false
+
+      if (autoRotateResumeTimer) {
+        window.clearTimeout(autoRotateResumeTimer)
+      }
+    }
+
+    const scheduleAutoRotate = () => {
+      if (autoRotateResumeTimer) {
+        window.clearTimeout(autoRotateResumeTimer)
+      }
+
+      autoRotateResumeTimer = window.setTimeout(() => {
+        controls.autoRotate = true
+        autoRotateResumeTimer = 0
+      }, AUTO_ROTATE_RESUME_MS)
     }
 
     const globeGroup = new THREE.Group()
@@ -529,7 +550,7 @@ export function GlobeIntro({ onContinue }: Props) {
 
     const handlePointerDown = (event: PointerEvent) => {
       activePointers.set(event.pointerId, event)
-      controls.autoRotate = false
+      pauseAutoRotate()
 
       if (activePointers.size === 1) {
         dragState.active = true
@@ -596,6 +617,7 @@ export function GlobeIntro({ onContinue }: Props) {
         dragState.active = false
         dragState.pointerId = -1
         dragState.pinchDistance = 0
+        scheduleAutoRotate()
       } else if (activePointers.size === 1) {
         const [next] = [...activePointers.values()]
         dragState.active = true
@@ -619,13 +641,15 @@ export function GlobeIntro({ onContinue }: Props) {
         dragState.active = false
         dragState.pointerId = -1
         dragState.pinchDistance = 0
+        scheduleAutoRotate()
       }
     }
 
     const handleWheel = (event: WheelEvent) => {
       event.preventDefault()
-      controls.autoRotate = false
+      pauseAutoRotate()
       zoomGlobe(event.deltaY * 0.004)
+      scheduleAutoRotate()
     }
 
     resize()
@@ -643,6 +667,7 @@ export function GlobeIntro({ onContinue }: Props) {
       disposed = true
 
       cancelAnimationFrame(frame)
+      if (autoRotateResumeTimer) window.clearTimeout(autoRotateResumeTimer)
 
       window.removeEventListener('resize', resize)
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
@@ -721,26 +746,6 @@ export function GlobeIntro({ onContinue }: Props) {
 
       <div className="absolute right-5 top-5">
         <LangToggle />
-      </div>
-
-      <div className="absolute right-4 top-[58%] z-30 flex -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-cyan-100/15 bg-slate-950/62 text-white shadow-2xl backdrop-blur sm:bottom-6 sm:right-6 sm:top-auto sm:translate-y-0">
-        <button
-          type="button"
-          onClick={() => zoomGlobe(-0.65)}
-          className="flex h-12 w-12 items-center justify-center border-b border-white/10 text-2xl font-black transition hover:bg-white/10"
-          aria-label="Zoom globe in"
-        >
-          +
-        </button>
-
-        <button
-          type="button"
-          onClick={() => zoomGlobe(0.65)}
-          className="flex h-12 w-12 items-center justify-center text-3xl font-black transition hover:bg-white/10"
-          aria-label="Zoom globe out"
-        >
-          -
-        </button>
       </div>
 
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-cyan-200/20 bg-slate-950/55 px-4 py-2 text-xs text-slate-300 shadow-xl backdrop-blur">
