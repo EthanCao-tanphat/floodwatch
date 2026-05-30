@@ -23,6 +23,8 @@ type DebugLine = {
 
 const EARTH_TEXTURE_URL = '/earth-night.jpg'
 const GLOBE_RADIUS = 2.1
+const HORIZONTAL_DRAG_SPEED = 0.006
+const TAP_MOVE_THRESHOLD_PX = 8
 
 const PINS: Pin[] = [
   { id: 'vietnam', lat: 14.0583, lng: 108.2772, kind: 'primary' },
@@ -159,6 +161,9 @@ function createPulseTexture() {
 
 export function GlobeIntro({ onContinue }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
+  const controlsRef = useRef<OrbitControls | null>(null)
+  const zoomBoundsRef = useRef({ min: 6.2, max: 10.2 })
 
   const [fallback, setFallback] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -167,6 +172,21 @@ export function GlobeIntro({ onContinue }: Props) {
   const [debugMode] = useState(() =>
     new URLSearchParams(window.location.search).has('debugGlobe')
   )
+
+  function zoomGlobe(delta: number) {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+
+    if (!camera || !controls) return
+
+    const { min, max } = zoomBoundsRef.current
+    const direction = camera.position.clone().sub(controls.target)
+    const nextDistance = Math.min(max, Math.max(min, direction.length() + delta))
+
+    direction.setLength(nextDistance)
+    camera.position.copy(controls.target).add(direction)
+    controls.update()
+  }
 
   useEffect(() => {
     const container = containerRef.current
@@ -209,6 +229,7 @@ export function GlobeIntro({ onContinue }: Props) {
 
     const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100)
     camera.position.set(0, 0.02, 8.2)
+    cameraRef.current = camera
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -224,25 +245,39 @@ export function GlobeIntro({ onContinue }: Props) {
     renderer.domElement.style.width = '100%'
     renderer.domElement.style.height = '100%'
     renderer.domElement.style.display = 'block'
+    renderer.domElement.style.touchAction = 'none'
 
     container.appendChild(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableZoom = false
+    controls.enableRotate = false
     controls.enablePan = false
     controls.enableDamping = true
     controls.dampingFactor = 0.06
     controls.rotateSpeed = 0.35
+    controls.zoomSpeed = 0.7
     controls.autoRotate = true
     controls.autoRotateSpeed = 0.35
-
-    controls.addEventListener('start', () => {
-      controls.autoRotate = false
-    })
+    controls.minPolarAngle = Math.PI / 2
+    controls.maxPolarAngle = Math.PI / 2
+    controls.minDistance = zoomBoundsRef.current.min
+    controls.maxDistance = zoomBoundsRef.current.max
+    controlsRef.current = controls
 
     const raycaster = new THREE.Raycaster()
     const pointer = new THREE.Vector2()
     const clickTargets: THREE.Object3D[] = []
+    const activePointers = new Map<number, PointerEvent>()
+    const dragState = {
+      active: false,
+      pointerId: -1,
+      startX: 0,
+      startY: 0,
+      lastX: 0,
+      moved: false,
+      pinchDistance: 0,
+    }
 
     const globeGroup = new THREE.Group()
 
@@ -393,6 +428,13 @@ export function GlobeIntro({ onContinue }: Props) {
 
       const mobile = width < 720
       const tablet = width >= 720 && width < 1120
+      zoomBoundsRef.current = mobile
+        ? { min: 6.2, max: 10.2 }
+        : tablet
+          ? { min: 5.9, max: 9.8 }
+          : { min: 5.7, max: 9.4 }
+      controls.minDistance = zoomBoundsRef.current.min
+      controls.maxDistance = zoomBoundsRef.current.max
 
       camera.fov = mobile ? 40 : 34
       camera.aspect = width / Math.max(height, 1)
@@ -458,7 +500,7 @@ export function GlobeIntro({ onContinue }: Props) {
       renderer.render(scene, camera)
     }
 
-    const handlePointer = (event: PointerEvent) => {
+    const inspectPinAt = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect()
 
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
@@ -474,12 +516,128 @@ export function GlobeIntro({ onContinue }: Props) {
       }
     }
 
+    const pointerDistance = () => {
+      const values = [...activePointers.values()]
+
+      if (values.length < 2) return 0
+
+      return Math.hypot(
+        values[0].clientX - values[1].clientX,
+        values[0].clientY - values[1].clientY
+      )
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      activePointers.set(event.pointerId, event)
+      controls.autoRotate = false
+
+      if (activePointers.size === 1) {
+        dragState.active = true
+        dragState.pointerId = event.pointerId
+        dragState.startX = event.clientX
+        dragState.startY = event.clientY
+        dragState.lastX = event.clientX
+        dragState.moved = false
+        dragState.pinchDistance = 0
+        renderer.domElement.setPointerCapture(event.pointerId)
+        return
+      }
+
+      dragState.active = false
+      dragState.pinchDistance = pointerDistance()
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!activePointers.has(event.pointerId)) return
+
+      activePointers.set(event.pointerId, event)
+
+      if (activePointers.size >= 2) {
+        const nextDistance = pointerDistance()
+
+        if (dragState.pinchDistance > 0 && nextDistance > 0) {
+          zoomGlobe((dragState.pinchDistance - nextDistance) * 0.018)
+        }
+
+        dragState.pinchDistance = nextDistance
+        return
+      }
+
+      if (!dragState.active || event.pointerId !== dragState.pointerId) return
+
+      const dx = event.clientX - dragState.lastX
+      const totalDx = event.clientX - dragState.startX
+      const totalDy = event.clientY - dragState.startY
+
+      if (Math.hypot(totalDx, totalDy) > TAP_MOVE_THRESHOLD_PX) {
+        dragState.moved = true
+      }
+
+      globeGroup.rotation.y += dx * HORIZONTAL_DRAG_SPEED
+      dragState.lastX = event.clientX
+    }
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const wasTap =
+        dragState.active &&
+        event.pointerId === dragState.pointerId &&
+        !dragState.moved &&
+        activePointers.size === 1
+
+      activePointers.delete(event.pointerId)
+
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId)
+      }
+
+      if (wasTap) inspectPinAt(event)
+
+      if (activePointers.size === 0) {
+        dragState.active = false
+        dragState.pointerId = -1
+        dragState.pinchDistance = 0
+      } else if (activePointers.size === 1) {
+        const [next] = [...activePointers.values()]
+        dragState.active = true
+        dragState.pointerId = next.pointerId
+        dragState.startX = next.clientX
+        dragState.startY = next.clientY
+        dragState.lastX = next.clientX
+        dragState.moved = false
+        dragState.pinchDistance = 0
+      }
+    }
+
+    const handlePointerCancel = (event: PointerEvent) => {
+      activePointers.delete(event.pointerId)
+
+      if (renderer.domElement.hasPointerCapture(event.pointerId)) {
+        renderer.domElement.releasePointerCapture(event.pointerId)
+      }
+
+      if (activePointers.size === 0) {
+        dragState.active = false
+        dragState.pointerId = -1
+        dragState.pinchDistance = 0
+      }
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      controls.autoRotate = false
+      zoomGlobe(event.deltaY * 0.004)
+    }
+
     resize()
     animate()
     setLoaded(true)
 
     window.addEventListener('resize', resize)
-    renderer.domElement.addEventListener('pointerdown', handlePointer)
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown)
+    renderer.domElement.addEventListener('pointermove', handlePointerMove)
+    renderer.domElement.addEventListener('pointerup', handlePointerUp)
+    renderer.domElement.addEventListener('pointercancel', handlePointerCancel)
+    renderer.domElement.addEventListener('wheel', handleWheel, { passive: false })
 
     return () => {
       disposed = true
@@ -487,9 +645,15 @@ export function GlobeIntro({ onContinue }: Props) {
       cancelAnimationFrame(frame)
 
       window.removeEventListener('resize', resize)
-      renderer.domElement.removeEventListener('pointerdown', handlePointer)
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
+      renderer.domElement.removeEventListener('pointermove', handlePointerMove)
+      renderer.domElement.removeEventListener('pointerup', handlePointerUp)
+      renderer.domElement.removeEventListener('pointercancel', handlePointerCancel)
+      renderer.domElement.removeEventListener('wheel', handleWheel)
 
       controls.dispose()
+      cameraRef.current = null
+      controlsRef.current = null
 
       scene.traverse((object) => {
         const mesh = object as THREE.Mesh
@@ -559,8 +723,28 @@ export function GlobeIntro({ onContinue }: Props) {
         <LangToggle />
       </div>
 
+      <div className="absolute right-4 top-[58%] z-30 flex -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-cyan-100/15 bg-slate-950/62 text-white shadow-2xl backdrop-blur sm:bottom-6 sm:right-6 sm:top-auto sm:translate-y-0">
+        <button
+          type="button"
+          onClick={() => zoomGlobe(-0.65)}
+          className="flex h-12 w-12 items-center justify-center border-b border-white/10 text-2xl font-black transition hover:bg-white/10"
+          aria-label="Zoom globe in"
+        >
+          +
+        </button>
+
+        <button
+          type="button"
+          onClick={() => zoomGlobe(0.65)}
+          className="flex h-12 w-12 items-center justify-center text-3xl font-black transition hover:bg-white/10"
+          aria-label="Zoom globe out"
+        >
+          -
+        </button>
+      </div>
+
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-cyan-200/20 bg-slate-950/55 px-4 py-2 text-xs text-slate-300 shadow-xl backdrop-blur">
-        Drag the globe or click a red pilot pin
+        Drag sideways, pinch zoom, or tap a red pilot pin
       </div>
 
       {showDebugPanel && (
