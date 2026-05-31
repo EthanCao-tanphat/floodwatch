@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api/client'
+import { useT } from '../i18n/context'
 import type { Coord, GeocodeResult, PlaceResolveResponse, SearchSuggestion, StatusResponse, TravelMode } from '../types'
 
 interface Props {
@@ -27,12 +28,12 @@ interface RecentPlace extends GeocodeResult {
 const RECENT_STORAGE_KEY = 'floodwatch_recent_places_v1'
 const MAX_RECENT_PLACES = 8
 
-const TRAVEL_MODES: Array<{ id: TravelMode; label: string; detail: string }> = [
-  { id: 'motorbike', label: 'Motorbike', detail: 'Flood-aware' },
-  { id: 'car', label: 'Car', detail: 'Drive' },
-  { id: 'walk', label: 'Walk', detail: 'Walking' },
-  { id: 'bicycle', label: 'Bicycle', detail: 'Bike' },
-  { id: 'transit', label: 'Transit', detail: 'Preview' },
+const TRAVEL_MODES: Array<{ id: TravelMode; labelKey: 'travelMotorbike' | 'travelCar' | 'travelWalk' | 'travelBicycle' | 'travelTransit' }> = [
+  { id: 'motorbike', labelKey: 'travelMotorbike' },
+  { id: 'car', labelKey: 'travelCar' },
+  { id: 'walk', labelKey: 'travelWalk' },
+  { id: 'bicycle', labelKey: 'travelBicycle' },
+  { id: 'transit', labelKey: 'travelTransit' },
 ]
 
 function coordToText(coord: Coord | null): string {
@@ -163,6 +164,7 @@ export function RouteInput({
   onSetTravelMode,
   status,
 }: Props) {
+  const { t } = useT()
   const [fromText, setFromText] = useState(coordToText(from))
   const [toText, setToText] = useState(coordToText(to))
 
@@ -288,7 +290,7 @@ export function RouteInput({
 
       selectPlace(field, place)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not resolve this place.')
+      setError(err instanceof Error ? err.message : t.couldNotResolvePlace)
     } finally {
       setBusyField((current) => (current === field ? null : current))
     }
@@ -313,7 +315,7 @@ export function RouteInput({
     const trimmed = text.trim()
 
     if (!trimmed) {
-      setError(`Please enter a ${field === 'from' ? 'start' : 'destination'} location.`)
+      setError(field === 'from' ? t.enterStart : t.enterDestination)
       setActiveField(field)
       return
     }
@@ -340,7 +342,7 @@ export function RouteInput({
       const results = await api.searchSuggest(trimmed, 7, sessionToken, bias, true)
 
       if (results.length === 0) {
-        setError(`No location found for "${trimmed}". Try adding "HCMC" or "Vietnam".`)
+        setError(t.noLocationFound)
         return
       }
 
@@ -349,7 +351,7 @@ export function RouteInput({
       if (field === 'from') setFromSuggestions(results)
       else setToSuggestions(results)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not search this location.')
+      setError(err instanceof Error ? err.message : t.couldNotSearchPlace)
     } finally {
       setBusyField((current) => (current === field ? null : current))
     }
@@ -422,7 +424,7 @@ export function RouteInput({
         {busyField === field && (
           <div className="flex items-center gap-3 px-4 py-3 text-sm text-slate-500">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-600 border-t-transparent" />
-            Searching places…
+            {t.searchingPlaces}
           </div>
         )}
 
@@ -430,7 +432,7 @@ export function RouteInput({
           <>
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
               <div className="text-xs font-black uppercase tracking-wide text-slate-400">
-                Recent searches
+                {t.recentSearches}
               </div>
 
               <button
@@ -438,7 +440,7 @@ export function RouteInput({
                 onClick={clearRecentPlaces}
                 className="text-xs font-bold text-cyan-700 hover:text-cyan-500"
               >
-                Clear
+                {t.clear}
               </button>
             </div>
 
@@ -449,7 +451,7 @@ export function RouteInput({
         {showSuggestions && (
           <>
             <div className="border-b border-slate-100 px-4 py-2 text-xs font-black uppercase tracking-wide text-slate-400">
-              Suggestions
+              {t.suggestions}
             </div>
 
             {suggestions.map((place) => renderSuggestionRow(field, place))}
@@ -473,7 +475,7 @@ export function RouteInput({
               isFrom ? 'bg-emerald-500' : 'bg-red-500'
             }`}
           />
-          {isFrom ? 'Start' : 'Destination'}
+          {isFrom ? t.start : t.destination}
         </div>
 
         <div
@@ -505,8 +507,8 @@ export function RouteInput({
             }}
             placeholder={
               isFrom
-                ? 'Choose starting point'
-                : 'Choose destination'
+                ? t.chooseStartingPoint
+                : t.chooseDestination
             }
             className="min-w-0 flex-1 bg-transparent py-2 text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400"
           />
@@ -522,7 +524,7 @@ export function RouteInput({
                 else setToSuggestions([])
               }}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              aria-label="Clear"
+              aria-label={t.clear}
             >
               <CloseIcon className="h-4 w-4" />
             </button>
@@ -536,7 +538,7 @@ export function RouteInput({
             }}
             className="shrink-0 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-extrabold text-slate-600 hover:bg-slate-200"
           >
-            Pick
+            {t.pick}
           </button>
         </div>
 
@@ -569,7 +571,7 @@ export function RouteInput({
             className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
           >
             <CurrentLocationIcon className="h-5 w-5" />
-            Current location
+            {t.useCurrentLocation}
           </button>
 
           <button
@@ -579,13 +581,13 @@ export function RouteInput({
             className="flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-3 text-sm font-extrabold text-white shadow-lg shadow-cyan-500/20 hover:bg-cyan-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
           >
             <RouteIcon className="h-5 w-5" />
-            {loading ? 'Checking…' : 'Check route'}
+            {loading ? t.checking : t.checkFlood}
           </button>
         </div>
 
         {travelMode === 'transit' && (
           <div className="rounded-lg bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-800 ring-1 ring-amber-100">
-            Transit is a preview route mode. FloodWatch uses road geometry until live transit schedules are connected.
+            {t.transitPreviewNote}
           </div>
         )}
       </div>
@@ -594,25 +596,26 @@ export function RouteInput({
 }
 
 function FloodSituation({ status }: { status: StatusResponse | null }) {
+  const { t } = useT()
   const rain = status?.rain_now_mm ?? 0
   const tide = status?.tide_level_m ?? 0
   const reports = status?.active_reports ?? 0
 
   const title =
     reports > 0
-      ? `${reports} active rider report${reports === 1 ? '' : 's'}`
+      ? `${reports} ${reports === 1 ? t.activeRiderReport : t.activeRiderReports}`
       : rain >= 10
-        ? 'Rain signal active'
+        ? t.rainSignalActive
         : tide >= 1.4
-          ? 'Tide pressure active'
-          : 'No live flood reports'
+          ? t.tidePressureActive
+          : t.noLiveFloodReports
 
   return (
     <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-100 sm:rounded-lg">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-black uppercase tracking-wide text-slate-400">
-            Current flooding
+            {t.currentFlooding}
           </div>
 
           <div className="mt-1 text-sm font-extrabold text-slate-900">
@@ -620,19 +623,19 @@ function FloodSituation({ status }: { status: StatusResponse | null }) {
           </div>
 
           <div className="mt-1 text-xs font-bold text-slate-500 sm:hidden">
-            Rain {rain.toFixed(1)}mm · Tide {tide.toFixed(2)}m · Reports {reports}
+            {t.rainShort} {rain.toFixed(1)}mm · {t.tideShort} {tide.toFixed(2)}m · {t.reportsShort} {reports}
           </div>
         </div>
 
         <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
-          Live
+          {t.live}
         </span>
       </div>
 
       <div className="mt-3 hidden grid-cols-3 gap-2 text-xs sm:grid">
-        <SituationMetric label="Rain" value={`${rain.toFixed(1)}mm`} />
-        <SituationMetric label="Tide" value={`${tide.toFixed(2)}m`} />
-        <SituationMetric label="Reports" value={String(reports)} />
+        <SituationMetric label={t.rainShort} value={`${rain.toFixed(1)}mm`} />
+        <SituationMetric label={t.tideShort} value={`${tide.toFixed(2)}m`} />
+        <SituationMetric label={t.reportsShort} value={String(reports)} />
       </div>
     </div>
   )
@@ -654,10 +657,12 @@ function TravelModePicker({
   value: TravelMode
   onChange: (mode: TravelMode) => void
 }) {
+  const { t } = useT()
+
   return (
     <div>
       <div className="text-sm font-extrabold uppercase tracking-wide text-slate-400 sm:text-base sm:normal-case sm:tracking-tight sm:text-slate-950">
-        Directions
+        {t.directions}
       </div>
 
       <div className="mt-2 grid grid-cols-5 gap-1 rounded-2xl bg-slate-100 p-1 sm:mt-3 sm:rounded-lg">
@@ -671,11 +676,11 @@ function TravelModePicker({
                 ? 'bg-white text-slate-950 shadow-sm'
                 : 'text-slate-500 hover:bg-white/60'
             }`}
-            title={mode.detail}
+            title={t[mode.labelKey]}
           >
             <TravelModeIcon mode={mode.id} className="mx-auto h-5 w-5" />
             <div className="mt-1 truncate text-[11px] font-extrabold">
-              {mode.label}
+              {t[mode.labelKey]}
             </div>
           </button>
         ))}

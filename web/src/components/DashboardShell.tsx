@@ -97,11 +97,11 @@ export function DashboardShell({
 
               <div className="min-w-0">
                 <div className="truncate text-lg font-semibold text-slate-800 sm:text-base">
-                  Search places or routes
+                  {t.searchPlacesOrRoutes}
                 </div>
 
                 <div className="truncate text-xs font-medium text-slate-500">
-                  Address, map pin, or coordinates
+                  {t.addressMapPinCoordinates}
                 </div>
               </div>
             </button>
@@ -136,7 +136,7 @@ export function DashboardShell({
           {(active === 'map' || active === 'routes') && (
             <div className="flex max-w-full gap-2 overflow-x-auto pb-1 sm:hidden">
               <QuickActionChip
-                label={active === 'routes' ? 'Map' : 'Set home'}
+                label={active === 'routes' ? t.navMap : t.setHome}
                 Icon={active === 'routes' ? MapIcon : HomeIcon}
                 onClick={() => onSelectNav(active === 'routes' ? 'map' : 'routes')}
               />

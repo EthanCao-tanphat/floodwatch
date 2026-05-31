@@ -274,7 +274,14 @@ export default function App() {
               />
 
               {panel && (
-                <FloatingPanel title="FloodWatch route panel">
+                <FloatingPanel
+                  title="FloodWatch route panel"
+                  defaultHeightVh={panel === 'routes' && result ? 38 : 58}
+                  minHeightVh={panel === 'routes' ? 24 : 42}
+                  midHeightVh={panel === 'routes' && result ? 54 : 58}
+                  maxHeightVh={88}
+                  snapKey={`${panel}-${result ? 'result' : 'input'}`}
+                >
                   {panel === 'routes' &&
                     (!result ? (
                       <RouteInput

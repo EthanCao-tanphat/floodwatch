@@ -1,25 +1,45 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
   title?: string
+  defaultHeightVh?: number
+  minHeightVh?: number
+  midHeightVh?: number
+  maxHeightVh?: number
+  snapKey?: string
 }
 
-export function FloatingPanel({ children }: Props) {
-  const [heightVh, setHeightVh] = useState(58)
+export function FloatingPanel({
+  children,
+  defaultHeightVh = 58,
+  minHeightVh = 42,
+  midHeightVh = 58,
+  maxHeightVh = 88,
+  snapKey,
+}: Props) {
+  const [heightVh, setHeightVh] = useState(defaultHeightVh)
   const [dragging, setDragging] = useState(false)
   const dragStartYRef = useRef<number | null>(null)
-  const dragStartHeightRef = useRef(58)
+  const dragStartHeightRef = useRef(defaultHeightVh)
   const handledDragRef = useRef(false)
 
+  useEffect(() => {
+    setHeightVh(defaultHeightVh)
+    dragStartHeightRef.current = defaultHeightVh
+  }, [defaultHeightVh, snapKey])
+
   function clampHeight(value: number): number {
-    return Math.min(88, Math.max(42, value))
+    return Math.min(maxHeightVh, Math.max(minHeightVh, value))
   }
 
   function snapHeight(value: number): number {
-    if (value >= 73) return 88
-    if (value <= 50) return 42
-    return 58
+    const lowMid = (minHeightVh + midHeightVh) / 2
+    const midHigh = (midHeightVh + maxHeightVh) / 2
+
+    if (value >= midHigh) return maxHeightVh
+    if (value <= lowMid) return minHeightVh
+    return midHeightVh
   }
 
   function updateDrag(y: number) {
@@ -57,7 +77,9 @@ export function FloatingPanel({ children }: Props) {
               handledDragRef.current = false
               return
             }
-            setHeightVh((value) => (value >= 73 ? 42 : 88))
+            setHeightVh((value) =>
+              value >= (midHeightVh + maxHeightVh) / 2 ? minHeightVh : maxHeightVh
+            )
           }}
           onPointerDown={(event) => {
             dragStartYRef.current = event.clientY
@@ -72,14 +94,18 @@ export function FloatingPanel({ children }: Props) {
             setDragging(false)
           }}
           className="mx-auto flex h-8 w-24 touch-none items-center justify-center rounded-full sm:hidden"
-          aria-label={heightVh >= 73 ? 'Collapse panel' : 'Expand panel'}
-          aria-expanded={heightVh >= 73}
+          aria-label={
+            heightVh >= (midHeightVh + maxHeightVh) / 2
+              ? 'Collapse panel'
+              : 'Expand panel'
+          }
+          aria-expanded={heightVh >= (midHeightVh + maxHeightVh) / 2}
         >
           <span className="h-1.5 w-12 rounded-full bg-slate-300/90" />
         </button>
 
         <div
-          className="mobile-bottom-sheet-scroll h-[calc(100%-2rem)] overflow-y-auto overscroll-contain bg-white pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
+          className="mobile-bottom-sheet-scroll h-[calc(100%-2rem)] overflow-y-auto overscroll-contain bg-white pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
         >
           {children}
         </div>
