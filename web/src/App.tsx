@@ -281,6 +281,14 @@ export default function App() {
                   midHeightVh={panel === 'routes' && result ? 54 : 58}
                   maxHeightVh={88}
                   snapKey={`${panel}-${result ? 'result' : 'input'}`}
+                  dismissOnMin={panel === 'routes' && !result}
+                  onDismiss={() => {
+                    if (panel === 'routes' && !result) {
+                      setPanel(null)
+                      setActiveNav('map')
+                      setTapMode(null)
+                    }
+                  }}
                 >
                   {panel === 'routes' &&
                     (!result ? (

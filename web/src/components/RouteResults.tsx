@@ -1,17 +1,12 @@
 import { useRef } from 'react'
 
+import { useT } from '../i18n/context'
+import type { Strings } from '../i18n/strings'
 import type { EvidenceState, Passability, RouteResponse, RiskLevel, RouteSegment } from '../types'
 
 interface Props {
   result: RouteResponse
   onClose: () => void
-}
-
-const riskCopy: Record<RiskLevel, string> = {
-  low: 'Safe',
-  moderate: 'Caution',
-  high: 'Avoid',
-  severe: 'Delay',
 }
 
 const riskStyle: Record<RiskLevel, string> = {
@@ -28,25 +23,39 @@ const evidenceStyle: Record<EvidenceState, string> = {
   unavailable: 'bg-slate-100 text-slate-600 ring-slate-200',
 }
 
-const passabilityLabel: Record<Passability, string> = {
-  safe: 'Passable',
-  slow_pass: 'Pass slowly',
-  avoid_for_motorbikes: 'Avoid for motorbikes',
-  impassable: 'Impassable',
-  unknown: 'Unknown',
-}
-
 function evidenceState(result: RouteResponse): EvidenceState {
   return result.evidence_state ?? 'forecast'
 }
 
-function statusLabel(result: RouteResponse): string {
+function riskLabel(t: Strings, risk: RiskLevel): string {
+  if (risk === 'low') return t.riskLow
+  if (risk === 'moderate') return t.riskModerate
+  if (risk === 'high') return t.riskHigh
+  return t.riskSevere
+}
+
+function passabilityText(t: Strings, passability: Passability): string {
+  if (passability === 'safe') return t.passabilitySafe
+  if (passability === 'slow_pass') return t.passabilitySlowPass
+  if (passability === 'avoid_for_motorbikes') return t.passabilityAvoid
+  if (passability === 'impassable') return t.passabilityImpassable
+  return t.passabilityUnknown
+}
+
+function confidenceText(t: Strings, confidence: string): string {
+  if (confidence === 'low') return t.confidenceLow
+  if (confidence === 'medium') return t.confidenceMedium
+  if (confidence === 'high') return t.confidenceHigh
+  return confidence
+}
+
+function statusLabel(t: Strings, result: RouteResponse): string {
   const state = evidenceState(result)
 
-  if (state === 'unavailable') return 'Unknown'
-  if (state === 'susceptibility') return 'History'
+  if (state === 'unavailable') return t.routeUnknown
+  if (state === 'susceptibility') return t.routeHistory
 
-  return riskCopy[result.overall_risk]
+  return riskLabel(t, result.overall_risk)
 }
 
 function statusStyle(result: RouteResponse): string {
@@ -59,69 +68,81 @@ function statusStyle(result: RouteResponse): string {
   return evidenceStyle[state]
 }
 
-function primaryMetricLabel(state: EvidenceState): string {
-  if (state === 'unavailable') return 'Live data'
-  if (state === 'susceptibility') return 'Susceptibility'
-  return 'Modeled risk'
+function primaryMetricLabel(t: Strings, state: EvidenceState): string {
+  if (state === 'unavailable') return t.liveData
+  if (state === 'susceptibility') return t.susceptibility
+  return t.modeledRisk
 }
 
-function primaryMetricValue(state: EvidenceState, maxRisk: number): string {
-  if (state === 'unavailable') return 'Unavailable'
+function primaryMetricValue(t: Strings, state: EvidenceState, maxRisk: number): string {
+  if (state === 'unavailable') return t.liveDataUnavailable
   return `${maxRisk}%`
 }
 
-function evidenceNote(state: EvidenceState): string | null {
+function evidenceNote(t: Strings, state: EvidenceState): string | null {
   if (state === 'unavailable') {
-    return 'Live flood data is unavailable, so this result avoids active-flood claims.'
+    return t.evidenceUnavailableNote
   }
 
   if (state === 'susceptibility') {
-    return 'This is historical susceptibility, not a detected flood.'
+    return t.evidenceSusceptibilityNote
   }
 
   if (state === 'live') {
-    return 'Includes recent rider report evidence.'
+    return t.evidenceLiveNote
   }
 
   return null
 }
 
-function travelModeTitle(result: RouteResponse): string {
-  if (result.travel_mode === 'car') return 'Car'
-  if (result.travel_mode === 'walk') return 'Walk'
-  if (result.travel_mode === 'bicycle') return 'Bicycle'
-  if (result.travel_mode === 'transit') return 'Transit'
-  return 'Two-wheeler'
+function travelModeTitle(t: Strings, result: RouteResponse): string {
+  if (result.travel_mode === 'car') return t.travelCar
+  if (result.travel_mode === 'walk') return t.travelWalk
+  if (result.travel_mode === 'bicycle') return t.travelBicycle
+  if (result.travel_mode === 'transit') return t.travelTransit
+  return t.travelMotorbike
 }
 
-function evidenceSummary(segment: RouteSegment): string {
+function localizedRecommendation(t: Strings, result: RouteResponse): string {
+  const state = evidenceState(result)
+
+  if (state === 'unavailable') return t.routeRecUnavailable
+  if (state === 'susceptibility') return t.routeRecSusceptibility
+  if (state === 'live') return t.routeRecLive
+  if (result.overall_risk === 'severe') return t.routeRecSevere
+  if (result.overall_risk === 'high') return t.routeRecHigh
+  if (result.overall_risk === 'moderate') return t.routeRecModerate
+  return t.routeRecLow
+}
+
+function evidenceSummary(t: Strings, segment: RouteSegment): string {
   const evidence = segment.evidence
   const parts: string[] = []
 
   if (segment.evidence_state === 'unavailable') {
-    return 'Live flood data unavailable for this segment.'
+    return t.liveFloodDataUnavailableSegment
   }
 
   if (segment.evidence_state === 'susceptibility') {
-    parts.push('Historical susceptibility only')
+    parts.push(t.historicalSusceptibilityOnly)
   } else {
-    parts.push(`Rain ${evidence.rainfall_mm.toFixed(1)}mm`)
+    parts.push(`${t.rainShort} ${evidence.rainfall_mm.toFixed(1)}mm`)
   }
 
   if (evidence.tide_level_m !== null && evidence.tide_level_m !== undefined) {
-    parts.push(`Tide ${evidence.tide_level_m.toFixed(2)}m`)
+    parts.push(`${t.tideShort} ${evidence.tide_level_m.toFixed(2)}m`)
   }
 
   if (evidence.river_discharge_ratio !== null && evidence.river_discharge_ratio !== undefined) {
-    parts.push(`River ${evidence.river_discharge_ratio.toFixed(2)}x`)
+    parts.push(`${t.river} ${evidence.river_discharge_ratio.toFixed(2)}x`)
   }
 
   if (evidence.report_count > 0) {
-    parts.push(`${evidence.report_count} rider report${evidence.report_count === 1 ? '' : 's'}`)
+    parts.push(`${evidence.report_count} ${evidence.report_count === 1 ? t.riderReport : t.riderReports}`)
   }
 
   if (segment.evidence_state === 'susceptibility') {
-    parts.push(`Hotspot ${Math.round(evidence.hotspot_proximity * 100)}%`)
+    parts.push(`${t.hotspot} ${Math.round(evidence.hotspot_proximity * 100)}%`)
   }
 
   return parts.join(' · ')
@@ -136,8 +157,10 @@ function evidenceTone(segment: RouteSegment): string {
 }
 
 export function RouteResults({ result, onClose }: Props) {
+  const { t } = useT()
   const detailsRef = useRef<HTMLDetailsElement | null>(null)
   const state = evidenceState(result)
+  const recommendation = localizedRecommendation(t, result)
   const segmentScores = result.segments
     .map((segment) => segment.risk_score ?? segment.flood_prob ?? 0)
     .filter((score) => Number.isFinite(score))
@@ -162,7 +185,7 @@ export function RouteResults({ result, onClose }: Props) {
   }
 
   async function shareRoute() {
-    const text = `FloodWatch route: ${result.eta_min} min, ${result.distance_km} km. ${result.recommendation}`
+    const text = `FloodWatch: ${result.eta_min} ${t.routeEta}, ${result.distance_km} ${t.routeDistance}. ${recommendation}`
 
     if (navigator.share) {
       await navigator.share({ title: 'FloodWatch route', text })
@@ -198,26 +221,26 @@ export function RouteResults({ result, onClose }: Props) {
       <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4">
         <div>
           <div className="hidden text-xs font-extrabold uppercase tracking-wide text-slate-400 sm:block">
-            Selected route
+            {t.selectedRoute}
           </div>
 
           <div className="text-3xl font-black tracking-tight text-slate-950 sm:hidden">
-            {travelModeTitle(result)}
+            {travelModeTitle(t, result)}
           </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-xl font-extrabold text-slate-950">
-              {result.eta_min} min
+              {result.eta_min} {t.routeEta}
             </span>
 
             <span className="text-sm font-semibold text-slate-500">
-              {result.distance_km} km
+              {result.distance_km} {t.routeDistance}
             </span>
 
             <span
               className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${statusStyle(result)}`}
             >
-              {statusLabel(result)}
+              {statusLabel(t, result)}
             </span>
           </div>
         </div>
@@ -239,7 +262,7 @@ export function RouteResults({ result, onClose }: Props) {
           className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-cyan-700 px-5 text-sm font-extrabold text-white shadow-lg shadow-cyan-700/20"
         >
           <ArrowIcon className="h-5 w-5" />
-          Start
+          {t.startAction}
         </button>
 
         <button
@@ -248,7 +271,7 @@ export function RouteResults({ result, onClose }: Props) {
           className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-cyan-50 px-5 text-sm font-extrabold text-cyan-800 ring-1 ring-cyan-100"
         >
           <ShareIcon className="h-5 w-5" />
-          Share
+          {t.share}
         </button>
 
         <button
@@ -257,7 +280,7 @@ export function RouteResults({ result, onClose }: Props) {
           className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-slate-50 px-5 text-sm font-extrabold text-slate-700 ring-1 ring-slate-100"
         >
           <BookmarkIcon className="h-5 w-5" />
-          Save
+          {t.save}
         </button>
       </div>
 
@@ -266,50 +289,50 @@ export function RouteResults({ result, onClose }: Props) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-black uppercase tracking-wide text-sky-700/70">
-                Flood evidence
+                {t.floodEvidence}
               </div>
-              <div className="mt-1 font-bold">{result.recommendation}</div>
+              <div className="mt-1 font-bold">{recommendation}</div>
             </div>
 
             <div className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-black text-sky-700 ring-1 ring-sky-100">
-              {primaryMetricValue(state, maxRisk)}
+              {primaryMetricValue(t, state, maxRisk)}
             </div>
           </div>
 
-          {evidenceNote(state) && (
+          {evidenceNote(t, state) && (
             <div className="mt-2 text-xs font-semibold text-sky-800/80">
-              {evidenceNote(state)}
+              {evidenceNote(t, state)}
             </div>
           )}
         </div>
 
         <details ref={detailsRef} className="rounded-2xl bg-white ring-1 ring-slate-200">
           <summary className="cursor-pointer px-4 py-3 text-sm font-extrabold text-slate-800">
-            Route details
+            {t.routeDetails}
           </summary>
 
           <div className="space-y-3 border-t border-slate-100 px-4 py-4">
             <div className="grid grid-cols-3 gap-2">
-              <MetricCard label={primaryMetricLabel(state)} value={primaryMetricValue(state, maxRisk)} />
-              <MetricCard label="Risky seg." value={String(riskySegments)} />
-              <MetricCard label="Confidence" value={result.confidence} />
+              <MetricCard label={primaryMetricLabel(t, state)} value={primaryMetricValue(t, state, maxRisk)} />
+              <MetricCard label={t.riskySegments} value={String(riskySegments)} />
+              <MetricCard label={t.confidence} value={confidenceText(t, result.confidence)} />
             </div>
 
             <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-100">
               <div className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-400">
-                Route status
+                {t.routeStatus}
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
-                  <div className="text-xs font-bold text-slate-400">Passability</div>
+                  <div className="text-xs font-bold text-slate-400">{t.passability}</div>
                   <div className="mt-1 font-extrabold text-slate-900">
-                    {passabilityLabel[result.overall_passability]}
+                    {passabilityText(t, result.overall_passability)}
                   </div>
                 </div>
 
                 <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
-                  <div className="text-xs font-bold text-slate-400">Segments</div>
+                  <div className="text-xs font-bold text-slate-400">{t.segments}</div>
                   <div className="mt-1 font-extrabold text-slate-900">
                     {result.segments.length}
                   </div>
@@ -321,9 +344,9 @@ export function RouteResults({ result, onClose }: Props) {
 
         <div className="rounded-2xl bg-white ring-1 ring-slate-200">
           <div className="border-b border-slate-100 px-4 py-3">
-            <div className="text-base font-extrabold text-slate-950">Flood details</div>
+            <div className="text-base font-extrabold text-slate-950">{t.floodDetails}</div>
             <div className="mt-1 text-xs font-semibold text-slate-500">
-              Segment evidence from rainfall, tide, river, rider reports, and historical susceptibility.
+              {t.floodDetailsSubtitle}
             </div>
           </div>
 
@@ -351,10 +374,10 @@ export function RouteResults({ result, onClose }: Props) {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-extrabold text-slate-950">
-                          Segment {index + 1}
+                          {t.segmentLabel} {index + 1}
                         </div>
                         <div className="mt-1 text-xs font-semibold leading-relaxed text-slate-600">
-                          {evidenceSummary(segment)}
+                          {evidenceSummary(t, segment)}
                         </div>
                       </div>
 
@@ -365,10 +388,10 @@ export function RouteResults({ result, onClose }: Props) {
 
                     <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold">
                       <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
-                        {passabilityLabel[segment.passability]}
+                        {passabilityText(t, segment.passability)}
                       </span>
                       <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
-                        {segment.confidence} confidence
+                        {confidenceText(t, segment.confidence)} {t.confidence.toLowerCase()}
                       </span>
                       <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
                         {segment.evidence_state}
@@ -384,36 +407,36 @@ export function RouteResults({ result, onClose }: Props) {
 
       <div className="hidden space-y-3 px-4 py-4 sm:block">
         <div className="rounded-lg bg-sky-50 px-4 py-3 text-sm leading-relaxed text-sky-950 ring-1 ring-sky-100">
-          <div className="font-extrabold">Recommendation</div>
-          <div className="mt-1">{result.recommendation}</div>
-          {evidenceNote(state) && (
+          <div className="font-extrabold">{t.recommendation}</div>
+          <div className="mt-1">{recommendation}</div>
+          {evidenceNote(t, state) && (
             <div className="mt-2 text-xs font-semibold text-sky-800/80">
-              {evidenceNote(state)}
+              {evidenceNote(t, state)}
             </div>
           )}
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          <MetricCard label={primaryMetricLabel(state)} value={primaryMetricValue(state, maxRisk)} />
-          <MetricCard label="Risky seg." value={String(riskySegments)} />
-          <MetricCard label="Confidence" value={result.confidence} />
+          <MetricCard label={primaryMetricLabel(t, state)} value={primaryMetricValue(t, state, maxRisk)} />
+          <MetricCard label={t.riskySegments} value={String(riskySegments)} />
+          <MetricCard label={t.confidence} value={confidenceText(t, result.confidence)} />
         </div>
 
         <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-100">
           <div className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-400">
-            Route status
+            {t.routeStatus}
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
-              <div className="text-xs font-bold text-slate-400">Passability</div>
+              <div className="text-xs font-bold text-slate-400">{t.passability}</div>
               <div className="mt-1 font-extrabold text-slate-900">
-                {passabilityLabel[result.overall_passability]}
+                {passabilityText(t, result.overall_passability)}
               </div>
             </div>
 
             <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
-              <div className="text-xs font-bold text-slate-400">Segments</div>
+              <div className="text-xs font-bold text-slate-400">{t.segments}</div>
               <div className="mt-1 font-extrabold text-slate-900">
                 {result.segments.length}
               </div>
@@ -423,7 +446,7 @@ export function RouteResults({ result, onClose }: Props) {
 
         <details className="rounded-lg bg-white ring-1 ring-slate-200">
           <summary className="cursor-pointer px-4 py-3 text-sm font-extrabold text-slate-800">
-            Segment evidence
+            {t.segmentEvidence}
           </summary>
 
           <div className="max-h-72 overflow-y-auto border-t border-slate-100">
@@ -439,13 +462,13 @@ export function RouteResults({ result, onClose }: Props) {
                 >
                   <div className="min-w-0">
                     <div className="text-sm font-extrabold text-slate-900">
-                      Segment {index + 1}
+                      {t.segmentLabel} {index + 1}
                     </div>
 
                     <div className="mt-0.5 text-xs text-slate-500">
-                      Rain {segment.evidence.rainfall_mm.toFixed(1)}mm · Tide{' '}
-                      {segment.evidence.tide_level_m?.toFixed(2) ?? 'n/a'}m · River{' '}
-                      {segment.evidence.river_discharge_ratio?.toFixed(2) ?? 'n/a'}x · Reports{' '}
+                      {t.rainShort} {segment.evidence.rainfall_mm.toFixed(1)}mm · {t.tideShort}{' '}
+                      {segment.evidence.tide_level_m?.toFixed(2) ?? 'n/a'}m · {t.river}{' '}
+                      {segment.evidence.river_discharge_ratio?.toFixed(2) ?? 'n/a'}x · {t.reportsShort}{' '}
                       {segment.evidence.report_count}
                     </div>
                   </div>
@@ -456,7 +479,7 @@ export function RouteResults({ result, onClose }: Props) {
                     </div>
 
                     <div className="text-xs font-semibold text-slate-500">
-                      {passabilityLabel[segment.passability]}
+                      {passabilityText(t, segment.passability)}
                     </div>
                   </div>
                 </div>

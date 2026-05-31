@@ -8,6 +8,8 @@ interface Props {
   midHeightVh?: number
   maxHeightVh?: number
   snapKey?: string
+  dismissOnMin?: boolean
+  onDismiss?: () => void
 }
 
 export function FloatingPanel({
@@ -17,6 +19,8 @@ export function FloatingPanel({
   midHeightVh = 58,
   maxHeightVh = 88,
   snapKey,
+  dismissOnMin = false,
+  onDismiss,
 }: Props) {
   const [heightVh, setHeightVh] = useState(defaultHeightVh)
   const [dragging, setDragging] = useState(false)
@@ -54,11 +58,18 @@ export function FloatingPanel({
 
     const deltaVh = ((dragStartYRef.current - y) / window.innerHeight) * 100
     const nextHeight = clampHeight(dragStartHeightRef.current + deltaVh)
+    const nextSnap = snapHeight(nextHeight)
 
     dragStartYRef.current = null
     setDragging(false)
     handledDragRef.current = Math.abs(deltaVh) > 1.5
-    setHeightVh(snapHeight(nextHeight))
+
+    if (dismissOnMin && deltaVh < -8 && nextSnap === minHeightVh) {
+      onDismiss?.()
+      return
+    }
+
+    setHeightVh(nextSnap)
   }
 
   return (
