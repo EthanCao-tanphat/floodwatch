@@ -94,6 +94,7 @@ export default function App() {
 
   const [loading, setLoading] = useState(false)
   const [apiOk, setApiOk] = useState<boolean | null>(null)
+  const [routeSheetExpanded, setRouteSheetExpanded] = useState(false)
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -151,6 +152,7 @@ export default function App() {
 
   function handleNavSelect(id: NavId) {
     setActiveNav(id)
+    setRouteSheetExpanded(false)
 
     if (id === 'map') {
       setPanel(null)
@@ -159,6 +161,10 @@ export default function App() {
 
     setPanel(id)
   }
+
+  const handleSheetHeightChange = useCallback((heightVh: number) => {
+    setRouteSheetExpanded(heightVh >= 72)
+  }, [])
 
   function handleMapTap(coord: Coord) {
     if (tapMode === 'from') setFrom(coord)
@@ -255,6 +261,7 @@ export default function App() {
             onSelectNav={handleNavSelect}
             statsPanel={statsPanel}
             apiOk={apiOk}
+            hideMobileQuickActions={panel === 'routes' && routeSheetExpanded}
           >
             <div className="app-screen relative">
               <MapView
@@ -287,8 +294,10 @@ export default function App() {
                       setPanel(null)
                       setActiveNav('map')
                       setTapMode(null)
+                      setRouteSheetExpanded(false)
                     }
                   }}
+                  onHeightChange={handleSheetHeightChange}
                 >
                   {panel === 'routes' &&
                     (!result ? (

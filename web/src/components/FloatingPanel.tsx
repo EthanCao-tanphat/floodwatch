@@ -10,6 +10,7 @@ interface Props {
   snapKey?: string
   dismissOnMin?: boolean
   onDismiss?: () => void
+  onHeightChange?: (heightVh: number) => void
 }
 
 export function FloatingPanel({
@@ -21,6 +22,7 @@ export function FloatingPanel({
   snapKey,
   dismissOnMin = false,
   onDismiss,
+  onHeightChange,
 }: Props) {
   const [heightVh, setHeightVh] = useState(defaultHeightVh)
   const [dragging, setDragging] = useState(false)
@@ -32,6 +34,10 @@ export function FloatingPanel({
     setHeightVh(defaultHeightVh)
     dragStartHeightRef.current = defaultHeightVh
   }, [defaultHeightVh, snapKey])
+
+  useEffect(() => {
+    onHeightChange?.(heightVh)
+  }, [heightVh, onHeightChange])
 
   function clampHeight(value: number): number {
     return Math.min(maxHeightVh, Math.max(minHeightVh, value))

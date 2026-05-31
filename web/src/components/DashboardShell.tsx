@@ -44,6 +44,7 @@ interface Props {
   onSelectNav: (id: NavId) => void
   statsPanel?: ReactNode
   apiOk: boolean | null
+  hideMobileQuickActions?: boolean
 }
 
 export function DashboardShell({
@@ -52,6 +53,7 @@ export function DashboardShell({
   onSelectNav,
   statsPanel,
   apiOk,
+  hideMobileQuickActions = false,
 }: Props) {
   const { t } = useT()
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -134,24 +136,31 @@ export function DashboardShell({
           </div>
 
           {(active === 'map' || active === 'routes') && (
-            <div className="flex max-w-full gap-2 overflow-x-auto pb-1 sm:hidden">
+            <div
+              className={`flex max-w-full gap-2 overflow-x-auto pb-1 transition duration-150 sm:hidden ${
+                hideMobileQuickActions
+                  ? 'pointer-events-none -translate-y-2 opacity-0'
+                  : 'translate-y-0 opacity-100'
+              }`}
+              aria-hidden={hideMobileQuickActions}
+            >
               <QuickActionChip
                 label={active === 'routes' ? t.navMap : t.setHome}
                 Icon={active === 'routes' ? MapIcon : HomeIcon}
                 onClick={() => onSelectNav(active === 'routes' ? 'map' : 'routes')}
               />
               <QuickActionChip
-                label="Reports"
+                label={t.navReports}
                 Icon={CameraIcon}
                 onClick={() => onSelectNav('reports')}
               />
               <QuickActionChip
-                label="Layers"
+                label={t.navLayers}
                 Icon={CloudRainIcon}
                 onClick={() => onSelectNav('layers')}
               />
               <QuickActionChip
-                label="Alerts"
+                label={t.navAlerts}
                 Icon={AlertIcon}
                 onClick={() => onSelectNav('alerts')}
               />
