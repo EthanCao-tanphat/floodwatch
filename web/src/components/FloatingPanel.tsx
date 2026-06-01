@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from 'react'
 
 interface Props {
   children: ReactNode
@@ -91,6 +91,25 @@ export function FloatingPanel({
     contentPullActiveRef.current = false
   }
 
+  function cancelDrag() {
+    dragStartYRef.current = null
+    setDragging(false)
+    resetContentPull()
+  }
+
+  function handleTouchStart(y: number) {
+    startDrag(y)
+  }
+
+  function handleTouchMove(event: TouchEvent, y: number) {
+    event.preventDefault()
+    updateDrag(y)
+  }
+
+  function handleTouchEnd(y: number) {
+    finishDrag(y)
+  }
+
   return (
     <div
       className="mobile-bottom-sheet fixed inset-x-0 bottom-0 z-50 h-[var(--sheet-height)] max-h-[calc(88dvh-env(safe-area-inset-bottom))] sm:inset-auto sm:left-4 sm:top-[92px] sm:z-40 sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:w-[min(448px,calc(100vw-24px))]"
@@ -118,8 +137,25 @@ export function FloatingPanel({
           onPointerMove={(event) => updateDrag(event.clientY)}
           onPointerUp={(event) => finishDrag(event.clientY)}
           onPointerCancel={() => {
-            dragStartYRef.current = null
-            setDragging(false)
+            cancelDrag()
+          }}
+          onTouchStart={(event) => {
+            const touch = event.touches[0]
+            if (!touch) return
+            handleTouchStart(touch.clientY)
+          }}
+          onTouchMove={(event) => {
+            const touch = event.touches[0]
+            if (!touch) return
+            handleTouchMove(event, touch.clientY)
+          }}
+          onTouchEnd={(event) => {
+            const touch = event.changedTouches[0]
+            if (!touch) return
+            handleTouchEnd(touch.clientY)
+          }}
+          onTouchCancel={() => {
+            cancelDrag()
           }}
           className="flex h-10 w-full touch-none items-center justify-center rounded-t-[28px] sm:hidden"
           aria-label={
@@ -177,9 +213,48 @@ export function FloatingPanel({
               event.currentTarget.releasePointerCapture(event.pointerId)
             }
 
-            dragStartYRef.current = null
-            setDragging(false)
+            cancelDrag()
+          }}
+          onTouchStart={(event) => {
+            if (event.currentTarget.scrollTop > 0) {
+              resetContentPull()
+              return
+            }
+
+            const touch = event.touches[0]
+            if (!touch) return
+
+            contentPullStartYRef.current = touch.clientY
+            contentPullActiveRef.current = false
+          }}
+          onTouchMove={(event) => {
+            const touch = event.touches[0]
+            const startY = contentPullStartYRef.current
+
+            if (!touch || startY === null) return
+
+            const dy = touch.clientY - startY
+
+            if (!contentPullActiveRef.current) {
+              if (event.currentTarget.scrollTop > 0 || dy < 8) return
+
+              contentPullActiveRef.current = true
+              startDrag(startY)
+            }
+
+            handleTouchMove(event, touch.clientY)
+          }}
+          onTouchEnd={(event) => {
+            const touch = event.changedTouches[0]
+
+            if (touch && contentPullActiveRef.current) {
+              handleTouchEnd(touch.clientY)
+            }
+
             resetContentPull()
+          }}
+          onTouchCancel={() => {
+            cancelDrag()
           }}
         >
           {children}
