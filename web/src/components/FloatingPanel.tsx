@@ -121,7 +121,7 @@ export function FloatingPanel({
             dragStartYRef.current = null
             setDragging(false)
           }}
-          className="mx-auto flex h-8 w-24 touch-none items-center justify-center rounded-full sm:hidden"
+          className="flex h-10 w-full touch-none items-center justify-center rounded-t-[28px] sm:hidden"
           aria-label={
             heightVh >= (midHeightVh + maxHeightVh) / 2
               ? 'Collapse panel'
@@ -133,7 +133,7 @@ export function FloatingPanel({
         </button>
 
         <div
-          className="mobile-bottom-sheet-scroll h-[calc(100%-2rem)] overflow-y-auto overscroll-contain bg-white pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
+          className="mobile-bottom-sheet-scroll h-[calc(100%-2.5rem)] overflow-y-auto overscroll-contain bg-white pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
           onPointerDown={(event) => {
             if (event.pointerType === 'mouse' || event.currentTarget.scrollTop > 0) {
               resetContentPull()
