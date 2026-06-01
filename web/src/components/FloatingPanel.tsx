@@ -28,6 +28,8 @@ export function FloatingPanel({
   const [dragging, setDragging] = useState(false)
   const dragStartYRef = useRef<number | null>(null)
   const dragStartHeightRef = useRef(defaultHeightVh)
+  const contentPullStartYRef = useRef<number | null>(null)
+  const contentPullActiveRef = useRef(false)
   const handledDragRef = useRef(false)
 
   useEffect(() => {
@@ -59,6 +61,12 @@ export function FloatingPanel({
     setHeightVh(clampHeight(dragStartHeightRef.current + deltaVh))
   }
 
+  function startDrag(y: number) {
+    dragStartYRef.current = y
+    dragStartHeightRef.current = heightVh
+    setDragging(true)
+  }
+
   function finishDrag(y: number) {
     if (dragStartYRef.current === null) return
 
@@ -76,6 +84,11 @@ export function FloatingPanel({
     }
 
     setHeightVh(nextSnap)
+  }
+
+  function resetContentPull() {
+    contentPullStartYRef.current = null
+    contentPullActiveRef.current = false
   }
 
   return (
@@ -99,9 +112,7 @@ export function FloatingPanel({
             )
           }}
           onPointerDown={(event) => {
-            dragStartYRef.current = event.clientY
-            dragStartHeightRef.current = heightVh
-            setDragging(true)
+            startDrag(event.clientY)
             event.currentTarget.setPointerCapture(event.pointerId)
           }}
           onPointerMove={(event) => updateDrag(event.clientY)}
@@ -123,6 +134,53 @@ export function FloatingPanel({
 
         <div
           className="mobile-bottom-sheet-scroll h-[calc(100%-2rem)] overflow-y-auto overscroll-contain bg-white pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
+          onPointerDown={(event) => {
+            if (event.pointerType === 'mouse' || event.currentTarget.scrollTop > 0) {
+              resetContentPull()
+              return
+            }
+
+            contentPullStartYRef.current = event.clientY
+            contentPullActiveRef.current = false
+          }}
+          onPointerMove={(event) => {
+            const startY = contentPullStartYRef.current
+
+            if (startY === null) return
+
+            const dy = event.clientY - startY
+
+            if (!contentPullActiveRef.current) {
+              if (event.currentTarget.scrollTop > 0 || dy < 8) return
+
+              contentPullActiveRef.current = true
+              startDrag(startY)
+              event.currentTarget.setPointerCapture(event.pointerId)
+            }
+
+            event.preventDefault()
+            updateDrag(event.clientY)
+          }}
+          onPointerUp={(event) => {
+            if (contentPullActiveRef.current) {
+              finishDrag(event.clientY)
+            }
+
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId)
+            }
+
+            resetContentPull()
+          }}
+          onPointerCancel={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId)
+            }
+
+            dragStartYRef.current = null
+            setDragging(false)
+            resetContentPull()
+          }}
         >
           {children}
         </div>
