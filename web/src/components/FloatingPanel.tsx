@@ -54,6 +54,10 @@ export function FloatingPanel({
     return midHeightVh
   }
 
+  function isExpanded() {
+    return heightVh >= (midHeightVh + maxHeightVh) / 2
+  }
+
   function updateDrag(y: number) {
     if (dragStartYRef.current === null) return
 
@@ -171,7 +175,10 @@ export function FloatingPanel({
         <div
           className="mobile-bottom-sheet-scroll h-[calc(100%-2.5rem)] overflow-y-auto overscroll-contain bg-white pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
           onPointerDown={(event) => {
-            if (event.pointerType === 'mouse' || event.currentTarget.scrollTop > 0) {
+            if (
+              event.pointerType === 'mouse' ||
+              (!isExpanded() && event.currentTarget.scrollTop > 0)
+            ) {
               resetContentPull()
               return
             }
@@ -187,7 +194,7 @@ export function FloatingPanel({
             const dy = event.clientY - startY
 
             if (!contentPullActiveRef.current) {
-              if (event.currentTarget.scrollTop > 0 || dy < 8) return
+              if ((!isExpanded() && event.currentTarget.scrollTop > 0) || dy < 8) return
 
               contentPullActiveRef.current = true
               startDrag(startY)
@@ -216,7 +223,7 @@ export function FloatingPanel({
             cancelDrag()
           }}
           onTouchStart={(event) => {
-            if (event.currentTarget.scrollTop > 0) {
+            if (!isExpanded() && event.currentTarget.scrollTop > 0) {
               resetContentPull()
               return
             }
@@ -236,7 +243,7 @@ export function FloatingPanel({
             const dy = touch.clientY - startY
 
             if (!contentPullActiveRef.current) {
-              if (event.currentTarget.scrollTop > 0 || dy < 8) return
+              if ((!isExpanded() && event.currentTarget.scrollTop > 0) || dy < 8) return
 
               contentPullActiveRef.current = true
               startDrag(startY)
