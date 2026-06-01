@@ -31,6 +31,8 @@ export function FloatingPanel({
   const contentPullStartYRef = useRef<number | null>(null)
   const contentPullActiveRef = useRef(false)
   const handledDragRef = useRef(false)
+  const quickCollapseDeltaVh = 2.5
+  const dismissDeltaVh = 8
 
   useEffect(() => {
     setHeightVh(defaultHeightVh)
@@ -75,6 +77,9 @@ export function FloatingPanel({
     if (dragStartYRef.current === null) return
 
     const deltaVh = ((dragStartYRef.current - y) / window.innerHeight) * 100
+    const expandedThreshold = (midHeightVh + maxHeightVh) / 2
+    const startedExpanded = dragStartHeightRef.current >= expandedThreshold
+    const startedMidOrLower = dragStartHeightRef.current <= midHeightVh + 2
     const nextHeight = clampHeight(dragStartHeightRef.current + deltaVh)
     const nextSnap = snapHeight(nextHeight)
 
@@ -82,8 +87,13 @@ export function FloatingPanel({
     setDragging(false)
     handledDragRef.current = Math.abs(deltaVh) > 1.5
 
-    if (dismissOnMin && deltaVh < -8 && nextSnap === minHeightVh) {
+    if (dismissOnMin && startedMidOrLower && deltaVh < -dismissDeltaVh) {
       onDismiss?.()
+      return
+    }
+
+    if (startedExpanded && deltaVh < -quickCollapseDeltaVh) {
+      setHeightVh(midHeightVh)
       return
     }
 
@@ -131,7 +141,7 @@ export function FloatingPanel({
               return
             }
             setHeightVh((value) =>
-              value >= (midHeightVh + maxHeightVh) / 2 ? minHeightVh : maxHeightVh
+              value >= (midHeightVh + maxHeightVh) / 2 ? midHeightVh : maxHeightVh
             )
           }}
           onPointerDown={(event) => {
@@ -161,7 +171,7 @@ export function FloatingPanel({
           onTouchCancel={() => {
             cancelDrag()
           }}
-          className="flex h-10 w-full touch-none items-center justify-center rounded-t-[28px] sm:hidden"
+          className="flex h-14 w-full touch-none items-center justify-center rounded-t-[28px] sm:hidden"
           aria-label={
             heightVh >= (midHeightVh + maxHeightVh) / 2
               ? 'Collapse panel'
@@ -173,7 +183,7 @@ export function FloatingPanel({
         </button>
 
         <div
-          className="mobile-bottom-sheet-scroll h-[calc(100%-2.5rem)] overflow-y-auto overscroll-contain bg-white pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
+          className="mobile-bottom-sheet-scroll h-[calc(100%-3.5rem)] overflow-y-auto overscroll-contain bg-white pb-[max(1rem,env(safe-area-inset-bottom))] sm:h-auto sm:max-h-[calc(100dvh-104px-env(safe-area-inset-bottom))] sm:rounded-xl sm:bg-transparent sm:pb-0"
           onPointerDown={(event) => {
             if (
               event.pointerType === 'mouse' ||
