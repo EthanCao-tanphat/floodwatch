@@ -50,6 +50,8 @@ function responseFromRouteCandidate(
     overall_passability: selected.overall_passability,
     confidence: selected.confidence,
     evidence_state: selected.evidence_state,
+    evidence_summary: selected.evidence_summary,
+    calibration_flags: selected.calibration_flags,
     recommendation: selected.recommendation,
     selected_route_id: selected.id,
 

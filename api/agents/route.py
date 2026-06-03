@@ -31,7 +31,7 @@ from agents.forecast import forecast_segment
 from services.graphhopper import fetch_road_routes, sample_route_points
 from services.coverage_tiers import coverage_for_route
 from services.openmeteo import fetch_rainfall, fetch_river_discharge, river_discharge_signal
-from services.reports import report_evidence_for_segment
+from services.reports import list_reports as list_active_reports, report_evidence_for_segment
 from services.tides import get_tide_level
 
 
@@ -191,8 +191,82 @@ def _evidence_with_report_signal(
 
     payload["report_count"] = int(report_summary.get("report_count", 0))
     payload["photo_confirmed"] = bool(report_summary.get("photo_confirmed", False))
+    payload["report_age_min"] = report_summary.get("report_age_min")
+    payload["risk_bearing_report_count"] = int(
+        report_summary.get("risk_bearing_report_count", 0)
+    )
 
     return RiskEvidence(**payload)
+
+
+def _segment_evidence_summary(
+    evidence_state: EvidenceState,
+    evidence: RiskEvidence,
+    risk_level: RiskLevel,
+) -> str:
+    if evidence_state == "unavailable":
+        return "Live/model flood data unavailable for this segment."
+
+    if evidence_state == "live" and evidence.report_count > 0:
+        return f"Recent rider report evidence near this segment ({evidence.report_count} report(s))."
+
+    if evidence_state == "susceptibility":
+        return "Historical susceptibility only; not a detected flood."
+
+    if float(evidence.rainfall_mm or 0.0) >= WARNING_RAIN_MM:
+        return f"Forecast rainfall signal ({evidence.rainfall_mm:.1f}mm) supports {risk_level} risk."
+
+    if _has_tide_pressure(evidence.tide_level_m):
+        return f"Forecast tide-pressure signal ({evidence.tide_level_m:.2f}m) supports caution."
+
+    if evidence.river_discharge_ratio is not None and evidence.river_discharge_ratio >= 1.25:
+        return f"River discharge forecast signal ({evidence.river_discharge_ratio:.2f}x) supports caution."
+
+    return "No active flood signal; model confidence depends on available route evidence."
+
+
+def _route_evidence_summary(
+    evidence_state: EvidenceState,
+    segments: List[RouteSegment],
+) -> str:
+    report_count = sum(segment.evidence.report_count for segment in segments)
+    max_rain = max((segment.evidence.rainfall_mm for segment in segments), default=0.0)
+    max_tide = max(
+        (
+            segment.evidence.tide_level_m
+            for segment in segments
+            if segment.evidence.tide_level_m is not None
+        ),
+        default=None,
+    )
+    max_river_ratio = max(
+        (
+            segment.evidence.river_discharge_ratio
+            for segment in segments
+            if segment.evidence.river_discharge_ratio is not None
+        ),
+        default=None,
+    )
+
+    if evidence_state == "unavailable":
+        return "Live/model flood data is unavailable for this route."
+
+    if evidence_state == "live" and report_count > 0:
+        return f"Route includes recent rider report evidence ({report_count} report(s))."
+
+    if evidence_state == "susceptibility":
+        return "Route risk is historical susceptibility only, not confirmed active flooding."
+
+    if max_rain >= ACTIVE_RAIN_MM:
+        return f"Forecast rainfall evidence is active on this route (up to {max_rain:.1f}mm)."
+
+    if _has_tide_pressure(max_tide):
+        return f"Forecast tide-pressure evidence is active on this route (up to {max_tide:.2f}m)."
+
+    if max_river_ratio is not None and max_river_ratio >= 1.25:
+        return f"River discharge forecast evidence is active on this route ({max_river_ratio:.2f}x)."
+
+    return "No active flood signal is available for this route window."
 
 TIMELINE_MINUTES = (0, 30, 60, 90)
 
@@ -701,10 +775,19 @@ async def _score_route(
         ]
     )
 
-    report_summaries = [
-        report_evidence_for_segment(start, end)
-        for (start, end, _chunk) in chunks
-    ]
+    active_reports = list_active_reports()
+    report_summaries = []
+
+    for (start, end, _chunk), points in zip(chunks, segment_forecasts):
+        display_point = _point_for_time(points, 60)
+        report_summaries.append(
+            report_evidence_for_segment(
+                start,
+                end,
+                modeled_prob=_prob_from_point(display_point),
+                reports=active_reports,
+            )
+        )
 
     timeline = _aggregate_route_timeline(segment_forecasts, report_summaries)
 
@@ -755,6 +838,7 @@ async def _score_route(
         if evidence_state == "unavailable":
             passability = "unknown"
 
+        calibration_flags = list(report_summary.get("calibration_flags", []))
         max_prob = max(max_prob, prob)
 
         if _confidence_rank(forecast_point.confidence) > _confidence_rank(best_confidence):
@@ -772,6 +856,12 @@ async def _score_route(
                 confidence=forecast_point.confidence,
                 evidence_state=evidence_state,
                 evidence=evidence,
+                evidence_summary=_segment_evidence_summary(
+                    evidence_state,
+                    evidence,
+                    risk_level,
+                ),
+                calibration_flags=calibration_flags,
             )
         )
 
@@ -985,6 +1075,13 @@ def _route_candidate_for(
     risk = _risk_for_prob(max_prob)
     report_count = sum(segment.evidence.report_count for segment in segments)
     active_reason = _active_reason_for(segments)
+    calibration_flags = sorted(
+        {
+            flag
+            for segment in segments
+            for flag in segment.calibration_flags
+        }
+    )
 
     return RouteCandidate(
         id=f"route_{idx}",
@@ -1010,6 +1107,8 @@ def _route_candidate_for(
         is_recommended=(idx == recommended_idx),
         is_fastest=(idx == 0),
         is_safest=(idx == safest_idx),
+        evidence_summary=_route_evidence_summary(evidence_state, segments),
+        calibration_flags=calibration_flags,
         tradeoff_summary=_tradeoff_summary(
             idx,
             max_prob,
@@ -1126,6 +1225,8 @@ async def find_safe_route(
             confidence=candidate.confidence,
             evidence_state=candidate.evidence_state,
             recommendation=candidate.recommendation,
+            evidence_summary=candidate.evidence_summary,
+            calibration_flags=candidate.calibration_flags,
             rerouted=False,
             alternatives=[],
             routes=[candidate],
@@ -1275,6 +1376,8 @@ async def find_safe_route(
         confidence=selected.confidence,
         evidence_state=selected.evidence_state,
         recommendation=selected.recommendation,
+        evidence_summary=selected.evidence_summary,
+        calibration_flags=selected.calibration_flags,
         rerouted=rerouted,
         alternatives=alternatives,
         routes=route_candidates,

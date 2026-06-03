@@ -9,6 +9,8 @@ import type {
   PlaceResolveResponse,
   SearchSuggestion,
   TravelMode,
+  WrongPredictionFeedbackRequest,
+  WrongPredictionFeedbackResponse,
 } from '../types'
 
 const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -70,6 +72,9 @@ export const api = {
 
   reportDepth: (image_base64: string, lat: number, lng: number) =>
     post<DepthReportResponse>('/report/depth', { image_base64, lat, lng }),
+
+  reportWrongPrediction: (feedback: WrongPredictionFeedbackRequest) =>
+    post<WrongPredictionFeedbackResponse>('/feedback/wrong-prediction', feedback),
 
   searchSuggest: async (
   q: string,

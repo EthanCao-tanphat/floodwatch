@@ -1,6 +1,7 @@
 """FloodWatch API — predictive flooded-road intel for Vietnam."""
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, List, Optional
@@ -17,7 +18,10 @@ from models import (
     RouteResponse,
     PlaceResolveRequest,
     PlaceResolveResponse,
+    RiderReport,
     SearchSuggestion,
+    WrongPredictionFeedbackRequest,
+    WrongPredictionFeedbackResponse,
 )
 from agents.depth import classify_depth
 from agents.forecast import forecast_segment
@@ -31,16 +35,23 @@ from config import (
 )
 from services.coverage import resolve_coverage
 from services.geocode import geocode_address
-from services.openmeteo import fetch_rainfall, fetch_rainfall_many, rainfall_in_window
-from services.reports import add_report, count_reports, list_reports
+from services.openmeteo import fetch_rainfall, fetch_rainfall_many, rainfall_in_window, weather_cache_status
+from services.reports import (
+    add_prediction_feedback,
+    add_report,
+    count_reports,
+    list_reports,
+    report_store_mode,
+    report_ttl_hours,
+)
 from services.tides import get_tide_level
 from services.place_search import resolve_place, suggest_places
 
 
 app = FastAPI(
     title="FloodWatch API",
-    description="30-60 minute motorbike-passability risk for HCMC pilot routes.",
-    version="0.2.1",
+    description="Pilot flood-aware route passability API for Vietnam.",
+    version="0.3.0",
 )
 
 app.add_middleware(
@@ -257,7 +268,7 @@ async def health():
     return {
         "status": "ok",
         "service": "FloodWatch API",
-        "version": "0.2.1",
+        "version": "0.3.0",
     }
 
 
@@ -286,6 +297,10 @@ async def status_endpoint():
         "tide_level_m": round(float(tide_level_m), 2),
         "coverage_pct": 100,
         "pilot_city": "Vietnam coverage tiers",
+        "report_store": report_store_mode(),
+        "report_ttl_hours": report_ttl_hours(),
+        "routing_provider": "graphhopper" if os.getenv("GRAPHHOPPER_API_KEY") else "fallback",
+        "weather_cache": weather_cache_status(),
     }
 
 
@@ -346,6 +361,13 @@ async def map_evidence_endpoint(
         "reports": reports,
         "weather_alerts": weather_alerts,
     }
+
+
+@app.get("/reports", response_model=List[RiderReport])
+async def reports_endpoint():
+    """Return active non-expired rider reports for pilot debugging/map sync."""
+
+    return list_reports()
 
 @app.get("/coverage")
 async def coverage_info():
@@ -470,12 +492,29 @@ async def depth_endpoint(req: DepthReportRequest):
                 "lng": req.lng,
                 "passability": result.passability,
                 "confidence": result.confidence,
+                "photo_confirmed": True,
+                "source": "rider_photo",
             }
         )
 
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Depth classification failed: {e}")
+
+
+@app.post("/feedback/wrong-prediction", response_model=WrongPredictionFeedbackResponse)
+async def wrong_prediction_feedback_endpoint(req: WrongPredictionFeedbackRequest):
+    """Store rider feedback when the prediction did not match road reality."""
+
+    if req.lat is not None and req.lng is not None:
+        _check_in_vietnam(req.lat, req.lng)
+
+    payload = add_prediction_feedback(req.model_dump())
+    return WrongPredictionFeedbackResponse(
+        id=payload["id"],
+        created_at=payload["created_at"],
+        stored=True,
+    )
 
 
 @app.get("/debug/coverage-point")

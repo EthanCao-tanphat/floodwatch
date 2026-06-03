@@ -26,6 +26,8 @@ export interface RiskEvidence {
   drainage_score: number | null
   report_count: number
   photo_confirmed: boolean
+  report_age_min?: number | null
+  risk_bearing_report_count?: number
 }
 
 export interface CoverageSignals {
@@ -54,6 +56,8 @@ export interface ForecastPoint {
   confidence: ConfidenceLevel
   evidence_state: EvidenceState
   evidence: RiskEvidence
+  evidence_summary?: string
+  calibration_flags?: string[]
 }
 
 export interface ForecastResponse {
@@ -130,6 +134,8 @@ export interface RouteCandidate {
   is_safest: boolean
 
   tradeoff_summary: string
+  evidence_summary?: string
+  calibration_flags?: string[]
 
   timeline: RouteTimelinePoint[]
   future_peak_risk: RiskLevel
@@ -150,6 +156,8 @@ export interface RouteResponse {
   evidence_state: EvidenceState
 
   recommendation: string
+  evidence_summary?: string
+  calibration_flags?: string[]
   rerouted?: boolean
   alternatives?: AlternativeRoute[]
 
@@ -187,6 +195,10 @@ export interface StatusResponse {
   tide_level_m: number
   coverage_pct: number
   pilot_city: string
+  report_store?: 'postgres' | 'memory' | string
+  report_ttl_hours?: number
+  routing_provider?: 'graphhopper' | 'fallback' | string
+  weather_cache?: 'fresh' | 'stale' | 'unknown' | string
 }
 
 export interface GeocodeResult {
@@ -248,6 +260,7 @@ export interface MapHotspot {
 export interface RiderReport {
   id: string
   created_at: number
+  expires_at?: number
   lat: number
   lng: number
   passability: Passability
@@ -256,6 +269,23 @@ export interface RiderReport {
   source: string
   evidence_type?: 'live_report'
   evidence_state?: 'live'
+  report_age_min?: number
+}
+
+export interface WrongPredictionFeedbackRequest {
+  route_id?: string | null
+  lat?: number | null
+  lng?: number | null
+  evidence_state?: EvidenceState | null
+  overall_risk?: RiskLevel | null
+  selected_passability?: Passability | null
+  user_note?: string
+}
+
+export interface WrongPredictionFeedbackResponse {
+  id: string
+  created_at: number
+  stored: boolean
 }
 
 export interface WeatherAlert {

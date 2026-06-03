@@ -82,6 +82,27 @@ def _write_cache(path: Path, data: Dict[str, Any]) -> None:
         pass
 
 
+def weather_cache_status() -> str:
+    """Return coarse cache state for health/status UI."""
+
+    try:
+        files = list(CACHE_DIR.glob("openmeteo_*.json"))
+        if not files:
+            return "unknown"
+
+        newest_age = min(time.time() - path.stat().st_mtime for path in files)
+
+        if newest_age <= CACHE_TTL_SECONDS:
+            return "fresh"
+
+        if newest_age <= STALE_TTL_SECONDS:
+            return "stale"
+    except Exception:
+        return "unknown"
+
+    return "unknown"
+
+
 async def _throttled_get_json(
     url: str,
     params: Dict[str, Any],

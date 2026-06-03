@@ -1,5 +1,6 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
+import { api } from '../api/client'
 import { useT } from '../i18n/context'
 import type { Strings } from '../i18n/strings'
 import type { EvidenceState, Passability, RouteResponse, RiskLevel, RouteSegment } from '../types'
@@ -159,6 +160,7 @@ function evidenceTone(segment: RouteSegment): string {
 export function RouteResults({ result, onClose }: Props) {
   const { t } = useT()
   const detailsRef = useRef<HTMLDetailsElement | null>(null)
+  const [feedbackState, setFeedbackState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const state = evidenceState(result)
   const recommendation = localizedRecommendation(t, result)
   const segmentScores = result.segments
@@ -213,6 +215,28 @@ export function RouteResults({ result, onClose }: Props) {
       window.localStorage.setItem('floodwatch_saved_routes_v1', JSON.stringify(next))
     } catch {
       // Saving is a convenience only; routing should not fail if storage is blocked.
+    }
+  }
+
+  async function reportWrongPrediction() {
+    const userNote = window.prompt(t.feedbackPrompt, '') ?? ''
+    const first = result.segments[0]?.start
+
+    setFeedbackState('sending')
+
+    try {
+      await api.reportWrongPrediction({
+        route_id: result.selected_route_id ?? null,
+        lat: first?.lat ?? null,
+        lng: first?.lng ?? null,
+        evidence_state: result.evidence_state,
+        overall_risk: result.overall_risk,
+        selected_passability: result.overall_passability,
+        user_note: userNote,
+      })
+      setFeedbackState('sent')
+    } catch {
+      setFeedbackState('error')
     }
   }
 
@@ -304,6 +328,29 @@ export function RouteResults({ result, onClose }: Props) {
               {evidenceNote(t, state)}
             </div>
           )}
+
+          <div className="mt-3 rounded-xl bg-white/70 px-3 py-2 text-xs font-semibold text-sky-900 ring-1 ring-sky-100">
+            <div className="font-black uppercase tracking-wide text-sky-700/70">
+              {t.evidenceSummary}
+            </div>
+            <div className="mt-1">{result.evidence_summary || recommendation}</div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
+          <div className="font-black">{t.pilotDisclaimer}</div>
+          <button
+            type="button"
+            onClick={() => void reportWrongPrediction()}
+            disabled={feedbackState === 'sending' || feedbackState === 'sent'}
+            className="mt-2 rounded-full bg-white px-3 py-2 text-xs font-black text-amber-800 ring-1 ring-amber-200 disabled:opacity-60"
+          >
+            {feedbackState === 'sent'
+              ? t.feedbackSaved
+              : feedbackState === 'error'
+              ? t.feedbackFailed
+              : t.reportWrongPrediction}
+          </button>
         </div>
 
         <details ref={detailsRef} className="rounded-2xl bg-white ring-1 ring-slate-200">
@@ -414,6 +461,25 @@ export function RouteResults({ result, onClose }: Props) {
               {evidenceNote(t, state)}
             </div>
           )}
+          <div className="mt-2 text-xs font-semibold text-sky-900">
+            {result.evidence_summary || recommendation}
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
+          <div className="font-black">{t.pilotDisclaimer}</div>
+          <button
+            type="button"
+            onClick={() => void reportWrongPrediction()}
+            disabled={feedbackState === 'sending' || feedbackState === 'sent'}
+            className="mt-2 rounded-full bg-white px-3 py-2 text-xs font-black text-amber-800 ring-1 ring-amber-200 disabled:opacity-60"
+          >
+            {feedbackState === 'sent'
+              ? t.feedbackSaved
+              : feedbackState === 'error'
+              ? t.feedbackFailed
+              : t.reportWrongPrediction}
+          </button>
         </div>
 
         <div className="grid grid-cols-3 gap-2">

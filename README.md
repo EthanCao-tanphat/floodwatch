@@ -168,6 +168,8 @@ Backend:
 | `DASHSCOPE_BASE_URL` | Yes for Dashscope | Dashscope API base URL |
 | `GRAPHHOPPER_API_KEY` | Recommended | Real road routing |
 | `GOOGLE_MAPS_API_KEY` | Recommended | Google Places search and address resolution |
+| `DATABASE_URL` | Optional | Render Postgres storage for rider reports and prediction feedback |
+| `REPORT_TTL_HOURS` | Optional | Rider report expiry window, default `6` |
 | `FLOODWATCH_DEMO_RAIN_MM` | Optional | Explicit demo-only rainfall override |
 
 Frontend:
@@ -230,11 +232,13 @@ Key endpoints:
 | `GET /status` | API status, evidence counts, runtime state |
 | `GET /coverage` | Coverage tier information |
 | `GET /map/evidence` | Historical/proxy hotspots, rider reports, and forecast warning markers |
+| `GET /reports` | Active, non-expired rider reports |
 | `POST /forecast/segment` | Forecast risk for one coordinate |
 | `GET /api/search/suggest` | Place search suggestions |
 | `POST /api/search/resolve` | Resolve a place into coordinates |
 | `POST /route/safe` | Route options with segment-level evidence |
 | `POST /report/depth` | Photo-based passability report |
+| `POST /feedback/wrong-prediction` | User feedback when route prediction did not match road reality |
 
 ## Market Pilot Roadmap
 

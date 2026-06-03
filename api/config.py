@@ -10,6 +10,12 @@ DASHSCOPE_BASE_URL = os.getenv(
     "https://dashscope-intl.aliyuncs.com/api/v1",
 )
 
+# Optional production persistence for rider reports and prediction feedback.
+# When DATABASE_URL is unset or unavailable, the API falls back to an in-memory
+# store so local development keeps working.
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+REPORT_TTL_HOURS = float(os.getenv("REPORT_TTL_HOURS", "6") or "6")
+
 # Vietnam bounding box (rough). Used to reject obviously-off-the-map coordinates.
 # North: 23.4° (Lung Cu), South: 8.5° (Ca Mau), West: 102.1°, East: 109.5°
 VN_LAT_MIN, VN_LAT_MAX = 8.0, 24.0

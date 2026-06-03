@@ -1,4 +1,5 @@
 import type { StatusResponse } from '../types'
+import { useT } from '../i18n/context'
 
 interface Props {
   apiOk: boolean | null
@@ -7,12 +8,14 @@ interface Props {
 }
 
 export function SettingsPanel({ apiOk, status, onClose }: Props) {
+  const { t } = useT()
+
   return (
     <div className="rounded-2xl bg-white/95 shadow-2xl border border-slate-200 p-4 text-slate-900">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <h2 className="text-lg font-bold">Settings</h2>
-          <p className="text-xs text-slate-500">Demo configuration</p>
+          <h2 className="text-lg font-bold">{t.navSettings}</h2>
+          <p className="text-xs text-slate-500">{t.pilotDisclaimer}</p>
         </div>
 
         <button
@@ -46,11 +49,43 @@ export function SettingsPanel({ apiOk, status, onClose }: Props) {
           <span className="text-slate-500">Vehicle mode</span>
           <span className="font-bold">Selected in routes</span>
         </div>
+
+        <div className="flex justify-between rounded-xl bg-slate-50 p-3">
+          <span className="text-slate-500">{t.reportStore}</span>
+          <span className="font-bold">{status?.report_store ?? 'memory'}</span>
+        </div>
+
+        <div className="flex justify-between rounded-xl bg-slate-50 p-3">
+          <span className="text-slate-500">{t.reportTtl}</span>
+          <span className="font-bold">{status?.report_ttl_hours ?? 6}h</span>
+        </div>
+
+        <div className="flex justify-between rounded-xl bg-slate-50 p-3">
+          <span className="text-slate-500">{t.routingProvider}</span>
+          <span className="font-bold">{status?.routing_provider ?? 'fallback'}</span>
+        </div>
+
+        <div className="flex justify-between rounded-xl bg-slate-50 p-3">
+          <span className="text-slate-500">{t.weatherCache}</span>
+          <span className="font-bold">{status?.weather_cache ?? 'unknown'}</span>
+        </div>
       </div>
 
       <div className="mt-3 rounded-xl bg-slate-900 text-white p-3 text-xs">
         FloodWatch uses tiered Vietnam coverage: strongest prediction in HCMC,
         partial city evidence where seeded, and rainfall/report warnings elsewhere.
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        <div className="rounded-xl bg-amber-50 p-3 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
+          <div className="font-black">{t.safetyTitle}</div>
+          <div className="mt-1">{t.safetyBody}</div>
+        </div>
+
+        <div className="rounded-xl bg-sky-50 p-3 text-xs leading-relaxed text-sky-950 ring-1 ring-sky-100">
+          <div className="font-black">{t.privacyTitle}</div>
+          <div className="mt-1">{t.privacyBody}</div>
+        </div>
       </div>
     </div>
   )

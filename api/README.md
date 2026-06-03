@@ -41,11 +41,13 @@ The API should label historical-only evidence as susceptibility, not live floodi
 | `/status` | `GET` | API status, evidence counts, runtime state |
 | `/coverage` | `GET` | Coverage tiers and city context |
 | `/map/evidence` | `GET` | Historical hotspots, rider reports, forecast markers |
+| `/reports` | `GET` | Active, non-expired rider reports |
 | `/forecast/segment` | `POST` | Risk forecast for one coordinate |
 | `/api/search/suggest` | `GET` | Place suggestions |
 | `/api/search/resolve` | `POST` | Resolve a place into coordinates |
 | `/route/safe` | `POST` | Route options with segment evidence |
 | `/report/depth` | `POST` | Photo-based passability report |
+| `/feedback/wrong-prediction` | `POST` | Rider feedback for prediction calibration |
 
 ## Local Run
 
@@ -68,9 +70,13 @@ Open `http://localhost:8000/docs` for Swagger.
 | `DASHSCOPE_BASE_URL` | Yes for Dashscope | Dashscope API base URL |
 | `GRAPHHOPPER_API_KEY` | Recommended | Real road routing |
 | `GOOGLE_MAPS_API_KEY` | Recommended | Google Places search and address resolution |
+| `DATABASE_URL` | Optional | Postgres storage for rider reports and wrong-prediction feedback |
+| `REPORT_TTL_HOURS` | Optional | Active report expiry window, default `6` |
 | `FLOODWATCH_DEMO_RAIN_MM` | Optional | Explicit demo-only rainfall override |
 
 If `GRAPHHOPPER_API_KEY` is missing, routing can fall back to simplified geometry. That is useful for development but should not be presented as production-quality road routing.
+
+If `DATABASE_URL` is missing or unavailable, the API falls back to in-memory report storage. That keeps local development simple, but reports will not survive process restarts.
 
 ## Example Requests
 

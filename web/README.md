@@ -129,6 +129,8 @@ For the first PWA pilot, prioritize:
 - Route search under 3 seconds for common searches.
 - Clean mobile bottom-sheet drag behavior.
 - Clear distinction between live, forecast, history, and unknown evidence.
+- Visible pilot safety/privacy copy.
+- Wrong-prediction feedback that is stored separately from live flood reports.
 - Vietnamese and English copy consistency.
 - Rider report flow that is easy but does not overclaim report accuracy.
 - Map-first interaction, with details available by pulling the sheet up.

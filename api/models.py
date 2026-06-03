@@ -36,6 +36,8 @@ class RiskEvidence(BaseModel):
     drainage_score: Optional[float] = None
     report_count: int = 0
     photo_confirmed: bool = False
+    report_age_min: Optional[int] = None
+    risk_bearing_report_count: int = 0
 
 
 class CoverageSignals(BaseModel):
@@ -108,6 +110,8 @@ class RouteSegment(BaseModel):
     confidence: ConfidenceLevel
     evidence_state: EvidenceState = "forecast"
     evidence: RiskEvidence
+    evidence_summary: str = ""
+    calibration_flags: List[str] = Field(default_factory=list)
 
 
 class AlternativeRoute(BaseModel):
@@ -161,6 +165,8 @@ class RouteCandidate(BaseModel):
     is_safest: bool = False
 
     tradeoff_summary: str = ""
+    evidence_summary: str = ""
+    calibration_flags: List[str] = Field(default_factory=list)
     
     timeline: List[RouteTimelinePoint] = Field(default_factory=list)
     future_peak_risk: RiskLevel = "low"
@@ -182,6 +188,8 @@ class RouteResponse(BaseModel):
     evidence_state: EvidenceState = "forecast"
 
     recommendation: str
+    evidence_summary: str = ""
+    calibration_flags: List[str] = Field(default_factory=list)
     rerouted: bool = False
     alternatives: List[AlternativeRoute] = []
 
@@ -219,6 +227,37 @@ class DepthReportResponse(BaseModel):
     reasoning: str
     lat: float
     lng: float
+
+
+class RiderReport(BaseModel):
+    id: str
+    created_at: int
+    expires_at: int
+    lat: float
+    lng: float
+    passability: Passability
+    confidence: float
+    photo_confirmed: bool
+    source: str
+    evidence_type: str = "live_report"
+    evidence_state: EvidenceState = "live"
+    report_age_min: int = 0
+
+
+class WrongPredictionFeedbackRequest(BaseModel):
+    route_id: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    evidence_state: Optional[EvidenceState] = None
+    overall_risk: Optional[RiskLevel] = None
+    selected_passability: Optional[Passability] = None
+    user_note: str = ""
+
+
+class WrongPredictionFeedbackResponse(BaseModel):
+    id: str
+    created_at: int
+    stored: bool = True
     
 
 SearchProvider = Literal["google", "local", "nominatim", "coordinate"]
